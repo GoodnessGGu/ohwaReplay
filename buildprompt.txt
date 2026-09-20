@@ -1,0 +1,1833 @@
+# TRADING REPLAY LAB
+
+## Master Build Specification for Codex / Claude Code / Antigravity
+
+You are the lead software architect and senior Python desktop engineer responsible for building a production-quality desktop application called:
+
+# Trading Replay Lab
+
+Trading Replay Lab is a desktop trading analysis and manual backtesting workstation. It allows users to load historical OHLCV data, replay markets candle-by-candle, manually execute simulated trades, draw technical-analysis objects directly on the chart, create alerts, journal trades, and analyze performance.
+
+This is NOT intended to be a simple demo or toy backtester.
+
+Build it as a clean, modular, extensible application that can eventually support sophisticated trading-analysis workflows.
+
+---
+
+# 1. PRIMARY TECHNOLOGY STACK
+
+Use:
+
+* Python 3.11+
+* PyQt6 for the desktop application
+* pandas for OHLCV data
+* numpy for numerical calculations
+* Lightweight Charts / lightweight-charts-python for chart rendering where appropriate
+* A Qt-compatible web view such as QWebEngineView when required for the JavaScript chart layer
+* pytest for testing
+* standard Python logging
+* JSON for lightweight workspace persistence
+* CSV for trade-history export
+
+Create:
+
+requirements.txt
+
+At minimum include the necessary packages for:
+
+* lightweight-charts
+* pandas
+* numpy
+* PyQt6
+* PyQt6-WebEngine
+* pytest
+
+Do not blindly add unnecessary dependencies.
+
+---
+
+# 2. IMPORTANT ARCHITECTURAL PRINCIPLE
+
+Separate the application into independent layers.
+
+The trading engine MUST NOT depend on the GUI.
+
+The replay engine MUST NOT depend directly on widgets.
+
+The analytics engine MUST NOT depend on chart rendering.
+
+The chart should be a visualization/interaction layer.
+
+Use an event-driven architecture where practical.
+
+Recommended high-level architecture:
+
+```
+Data Layer
+    ↓
+Replay Engine
+    ↓
+Application/Event Layer
+    ↓
+┌───────────────┬────────────────┬────────────────┐
+↓               ↓                ↓
+Chart        Account Engine    Analytics
+↓               ↓
+Drawings       Positions
+Alerts         Orders
+Notifications
+```
+
+The application should be testable without launching the GUI.
+
+---
+
+# 3. PROJECT STRUCTURE
+
+Create this structure:
+
+trading_replay_lab/
+│
+├── main.py
+├── requirements.txt
+├── README.md
+├── config.yaml
+├── .gitignore
+│
+├── src/
+│   ├── **init**.py
+│   │
+│   ├── core/
+│   │   ├── **init**.py
+│   │   ├── account_engine.py
+│   │   ├── position.py
+│   │   ├── order.py
+│   │   ├── pnl.py
+│   │   └── risk.py
+│   │
+│   ├── data/
+│   │   ├── **init**.py
+│   │   ├── data_loader.py
+│   │   ├── data_validator.py
+│   │   ├── resampler.py
+│   │   └── synthetic_data.py
+│   │
+│   ├── replay/
+│   │   ├── **init**.py
+│   │   ├── replay_controller.py
+│   │   ├── replay_state.py
+│   │   └── replay_events.py
+│   │
+│   ├── chart/
+│   │   ├── **init**.py
+│   │   ├── chart_manager.py
+│   │   ├── chart_widget.py
+│   │   ├── markers.py
+│   │   ├── trade_overlays.py
+│   │   └── chart_state.py
+│   │
+│   ├── drawings/
+│   │   ├── **init**.py
+│   │   ├── base_tool.py
+│   │   ├── trendline.py
+│   │   ├── ray.py
+│   │   ├── horizontal_line.py
+│   │   ├── vertical_line.py
+│   │   ├── rectangle.py
+│   │   ├── fibonacci.py
+│   │   ├── text.py
+│   │   ├── long_short.py
+│   │   ├── arrow.py
+│   │   └── drawing_store.py
+│   │
+│   ├── indicators/
+│   │   ├── **init**.py
+│   │   ├── base_indicator.py
+│   │   ├── ema.py
+│   │   ├── sma.py
+│   │   ├── rsi.py
+│   │   ├── macd.py
+│   │   ├── atr.py
+│   │   └── registry.py
+│   │
+│   ├── analytics/
+│   │   ├── **init**.py
+│   │   ├── analytics.py
+│   │   ├── statistics.py
+│   │   └── exporter.py
+│   │
+│   ├── notifications/
+│   │   ├── **init**.py
+│   │   ├── notification_manager.py
+│   │   ├── sound_manager.py
+│   │   └── alerts.py
+│   │
+│   ├── workspace/
+│   │   ├── **init**.py
+│   │   ├── workspace_manager.py
+│   │   └── workspace_schema.py
+│   │
+│   ├── events/
+│   │   ├── **init**.py
+│   │   └── event_bus.py
+│   │
+│   └── utils/
+│       ├── **init**.py
+│       ├── constants.py
+│       ├── logger.py
+│       └── helpers.py
+│
+├── ui/
+│   ├── **init**.py
+│   ├── main_window.py
+│   ├── toolbar.py
+│   ├── replay_bar.py
+│   ├── execution_panel.py
+│   ├── dashboard.py
+│   ├── positions_panel.py
+│   ├── history_panel.py
+│   ├── analytics_panel.py
+│   ├── journal_panel.py
+│   ├── settings_dialog.py
+│   └── styles/
+│       └── dark.qss
+│
+├── assets/
+│   ├── icons/
+│   └── sounds/
+│       ├── order_open.wav
+│       ├── order_close.wav
+│       ├── tp.wav
+│       ├── sl.wav
+│       └── alert.wav
+│
+├── data/
+│   └── sample/
+│
+└── tests/
+├── test_data.py
+├── test_account.py
+├── test_replay.py
+├── test_analytics.py
+├── test_drawings.py
+└── test_workspace.py
+
+You may modify this structure if there is a technically superior approach, but preserve the separation of concerns.
+
+---
+
+# 4. DEVELOPMENT STRATEGY
+
+DO NOT attempt to generate the entire application in one giant untested implementation.
+
+Build it incrementally.
+
+Use this order:
+
+PHASE 1
+Project skeleton + data engine + tests
+
+PHASE 2
+Replay engine + tests
+
+PHASE 3
+Account/trading engine + tests
+
+PHASE 4
+Basic PyQt6 application
+
+PHASE 5
+Chart integration
+
+PHASE 6
+Replay UI
+
+PHASE 7
+Trading UI
+
+PHASE 8
+Drawing system
+
+PHASE 9
+Alerts and notifications
+
+PHASE 10
+Analytics
+
+PHASE 11
+Workspace persistence
+
+PHASE 12
+Polish, optimization and complete testing
+
+After every phase:
+
+1. Run tests.
+2. Fix errors.
+3. Verify imports.
+4. Verify the application still launches.
+5. Do not proceed while fundamental architecture is broken.
+
+---
+
+# 5. DATA ENGINE
+
+Implement:
+
+src/data/data_loader.py
+
+Support:
+
+* CSV loading
+* DataFrame loading
+* synthetic data generation
+
+Expected OHLCV schema:
+
+timestamp
+open
+high
+low
+close
+volume
+
+Accept common variations such as:
+
+Date
+Datetime
+Time
+Open
+High
+Low
+Close
+Volume
+
+Normalize them internally.
+
+Validate:
+
+* required columns
+* numeric OHLC values
+* valid timestamps
+* chronological order
+* duplicate timestamps
+* missing values
+* invalid OHLC relationships
+
+Provide clear user-facing errors.
+
+For example:
+
+"CSV is missing required column: high"
+
+Do not silently corrupt or guess bad data.
+
+---
+
+# 6. SYNTHETIC DATA
+
+Implement synthetic M1/M5 data generation for testing.
+
+Support configurable:
+
+* symbol
+* starting price
+* number of candles
+* timeframe
+* volatility
+* trend
+* spread
+* random seed
+
+Provide presets:
+
+XAUUSD
+EURUSD
+GBPUSD
+USDJPY
+BTCUSD
+
+Synthetic data should produce realistic-looking OHLC relationships.
+
+Allow deterministic generation through a random seed.
+
+---
+
+# 7. TIMEFRAME RESAMPLING
+
+Implement:
+
+1m
+3m
+5m
+15m
+30m
+1h
+4h
+1d
+
+Correct OHLC aggregation:
+
+open = first
+high = max
+low = min
+close = last
+volume = sum
+
+Do not use future candles during replay.
+
+---
+
+# 8. REPLAY ENGINE
+
+Create:
+
+src/replay/replay_controller.py
+
+The replay engine must maintain:
+
+* full dataset
+* current candle index
+* replay start index
+* replay end index
+* playing/paused state
+* playback speed
+* timeframe
+* replay timestamp
+
+Support:
+
+* Play
+* Pause
+* Step forward
+* Step backward where technically safe
+* Fast forward
+* Reset
+* Jump to candle
+* Jump to timestamp
+* Random replay start
+* configurable playback speed
+
+Playback speed:
+
+0.1x
+0.25x
+0.5x
+1x
+2x
+5x
+10x
+
+Do not freeze the UI.
+
+Use QTimer or a suitable asynchronous mechanism.
+
+Never use a blocking while-loop on the GUI thread.
+
+---
+
+# 9. HIDDEN FUTURE
+
+This is mandatory.
+
+If replay position is candle 1000:
+
+Only candles 0-1000 may be visible as historical replay data.
+
+Future candles must not be rendered.
+
+The user must not accidentally see future price action.
+
+This is essential for unbiased manual backtesting.
+
+---
+
+# 10. ACCOUNT ENGINE
+
+Implement a broker-like virtual account.
+
+State:
+
+* balance
+* equity
+* used margin
+* free margin
+* unrealized PnL
+* realized PnL
+* positions
+* orders
+* trade history
+* lot size
+* leverage
+* spread
+* commission
+* slippage
+
+Support:
+
+MARKET BUY
+MARKET SELL
+CLOSE POSITION
+
+Initially support one position or multiple positions depending on implementation quality.
+
+Design the architecture so multiple positions can be supported.
+
+---
+
+# 11. POSITION MODEL
+
+A position should contain:
+
+id
+symbol
+direction
+entry_price
+current_price
+volume
+lot_size
+stop_loss
+take_profit
+open_time
+close_time
+realized_pnl
+unrealized_pnl
+commission
+status
+
+Use proper classes/dataclasses.
+
+Do not represent positions as random dictionaries throughout the codebase.
+
+---
+
+# 12. SL / TP PROCESSING
+
+For every new candle, automatically check:
+
+HIGH
+LOW
+
+against active SL/TP levels.
+
+For BUY:
+
+SL is below entry.
+TP is above entry.
+
+For SELL:
+
+SL is above entry.
+TP is below entry.
+
+Handle invalid levels.
+
+---
+
+# 13. OHLC INTRABAR AMBIGUITY
+
+Important:
+
+If one candle's High and Low touch both SL and TP, OHLC data alone cannot determine which happened first.
+
+Implement a configurable execution model:
+
+SL_FIRST
+TP_FIRST
+CONSERVATIVE
+OPTIMISTIC
+LOWER_TIMEFRAME
+
+Default to a conservative deterministic mode.
+
+Document this behavior clearly.
+
+If lower timeframe data is available, allow the engine to use it to resolve intrabar order.
+
+---
+
+# 14. REALISM SETTINGS
+
+Add:
+
+spread
+slippage
+commission
+leverage
+
+These should be configurable.
+
+Example:
+
+Initial balance:
+$10,000
+
+Leverage:
+1:100
+
+Commission:
+$7/lot
+
+Spread:
+0.20
+
+Slippage:
+0.05
+
+Do not hard-code these values.
+
+---
+
+# 15. EVENT BUS
+
+Implement a lightweight event system.
+
+Events should include:
+
+CANDLE_ADVANCED
+REPLAY_STARTED
+REPLAY_PAUSED
+REPLAY_COMPLETED
+ORDER_OPENED
+ORDER_CLOSED
+POSITION_UPDATED
+SL_HIT
+TP_HIT
+PRICE_ALERT
+DRAWING_CREATED
+DRAWING_UPDATED
+DRAWING_DELETED
+WORKSPACE_SAVED
+WORKSPACE_LOADED
+
+The event bus should allow different modules to react without tightly coupling them.
+
+Example:
+
+ORDER_OPENED
+
+can trigger:
+
+Chart marker
+Sound
+Notification
+Position panel update
+Analytics update
+
+without the AccountEngine directly manipulating UI widgets.
+
+---
+
+# 16. CHART SYSTEM
+
+Use Lightweight Charts.
+
+The chart must display:
+
+* candlesticks
+* volume where supported
+* current price
+* trade entry markers
+* exit markers
+* SL line
+* TP line
+* position overlays
+* crosshair
+* time scale
+* price scale
+
+The chart should update efficiently as replay progresses.
+
+Do not redraw the entire chart unnecessarily on every candle.
+
+---
+
+# 17. JAVASCRIPT CHART LAYER
+
+If lightweight-charts-python cannot provide a required interactive feature cleanly, create a JavaScript chart layer.
+
+Use Python/PyQt6 for:
+
+Application
+Trading engine
+Replay
+Data
+Analytics
+Persistence
+
+Use JavaScript for:
+
+Chart rendering
+Mouse interaction
+Drawing tools
+Drag/resize
+Chart coordinate conversions
+Selection
+Interactive annotations
+
+Communicate between Python and JavaScript cleanly.
+
+Do not hack around this by putting huge amounts of JavaScript inside random GUI files.
+
+Create a dedicated chart bridge/interface.
+
+---
+
+# 18. DRAWING TOOL SYSTEM
+
+Implement a common base drawing interface.
+
+Each drawing must support:
+
+create
+select
+move
+resize where applicable
+delete
+hide
+show
+lock
+unlock
+style changes
+serialization
+
+Tools:
+
+1. Cursor
+2. Trendline
+3. Ray
+4. Horizontal line
+5. Vertical line
+6. Rectangle
+7. Fibonacci retracement
+8. Text
+9. Arrow
+10. Long Position
+11. Short Position
+
+Architecture:
+
+BaseDrawingTool
+↓
+TrendLineTool
+RectangleTool
+FibTool
+TextTool
+LongPositionTool
+ShortPositionTool
+
+Do not make every drawing a completely independent implementation.
+
+---
+
+# 19. DRAWING DATA MODEL
+
+Drawings must be real objects, not temporary pixels.
+
+Example:
+
+Drawing:
+
+id
+type
+symbol
+start_time
+start_price
+end_time
+end_price
+style
+locked
+visible
+metadata
+
+Allow drawings to be saved and restored.
+
+---
+
+# 20. FIBONACCI TOOL
+
+Provide configurable levels.
+
+Default:
+
+0
+0.236
+0.382
+0.5
+0.618
+0.786
+1
+1.272
+1.618
+
+Allow:
+
+* add level
+* remove level
+* show/hide labels
+* show prices
+* extend left
+* extend right
+
+Make Fib levels configurable in settings.
+
+---
+
+# 21. LONG/SHORT DRAWING TOOL
+
+This is an ANALYSIS tool.
+
+It must NOT automatically open a simulated trade.
+
+When placing a Long Position drawing, display:
+
+Entry
+Stop Loss
+Take Profit
+Risk
+Reward
+Risk/Reward ratio
+
+Allow dragging:
+
+Entry
+SL
+TP
+
+Update calculations live.
+
+Example:
+
+Entry: 4350
+SL: 4340
+TP: 4370
+
+Risk = 10
+Reward = 20
+RR = 1:2
+
+The Short Position tool works inversely.
+
+---
+
+# 22. CRITICAL DISTINCTION
+
+A Long/Short drawing is NOT an executed trade.
+
+Market Buy/Market Sell are actual simulated trades.
+
+The user must be able to draw hypothetical setups without affecting the virtual account.
+
+---
+
+# 23. DRAWING TOOLBAR
+
+Create a professional chart toolbar:
+
+Cursor
+Trendline
+Ray
+Horizontal
+Vertical
+Rectangle
+Fib
+Text
+Arrow
+Long
+Short
+Delete
+Undo
+Redo
+
+Use recognizable icons where possible.
+
+Keyboard shortcuts:
+
+Space = Play/Pause
+Right Arrow = Next candle
+Left Arrow = Previous candle
+B = Buy
+S = Sell
+C = Close
+T = Trendline
+R = Rectangle
+F = Fibonacci
+L = Long
+Shift+L = Short
+Esc = Cancel
+Delete = Delete selected drawing
+Ctrl+Z = Undo
+Ctrl+Shift+Z = Redo
+Ctrl+S = Save workspace
+
+Avoid shortcuts that conflict with text editing when a text field has focus.
+
+---
+
+# 24. UNDO/REDO
+
+Implement command-based undo/redo for drawing operations:
+
+CREATE
+MOVE
+RESIZE
+DELETE
+STYLE_CHANGE
+
+Do not implement undo by simply reloading the entire application state.
+
+---
+
+# 25. EXECUTION PANEL
+
+Create a professional trading panel.
+
+Inputs:
+
+Symbol
+Lot Size
+SL
+TP
+Risk %
+
+Buttons:
+
+BUY
+SELL
+CLOSE POSITION
+
+Also show:
+
+Entry price
+Current price
+Spread
+Estimated risk
+Estimated reward
+RR
+
+Validate all input.
+
+Never allow:
+
+negative lot size
+zero lot size
+invalid prices
+SL on wrong side
+TP on wrong side
+NaN
+infinite values
+
+Show useful error messages.
+
+---
+
+# 26. RISK CALCULATOR
+
+Allow the user to enter:
+
+Account balance
+Risk %
+Entry
+Stop Loss
+
+Calculate:
+
+Risk amount
+Suggested position size
+Potential loss
+
+Also calculate:
+
+Reward
+Risk/Reward
+
+Keep instrument-specific pip/point calculations isolated so they can later be customized per symbol.
+
+---
+
+# 27. DASHBOARD
+
+Display:
+
+Balance
+Equity
+Open PnL
+Realized PnL
+Margin
+Free Margin
+Active Position
+
+Example:
+
+Balance     $10,000
+Equity      $10,125
+Open PnL    +$125
+Margin      $500
+Free Margin $9,625
+Position    BUY 0.10
+
+Update dynamically.
+
+---
+
+# 28. POSITIONS PANEL
+
+Bottom panel/table:
+
+ID
+Symbol
+Direction
+Volume
+Entry
+Current
+SL
+TP
+PnL
+Open Time
+Status
+
+Double-clicking a position should optionally focus the chart on its entry/SL/TP.
+
+---
+
+# 29. TRADE HISTORY
+
+Columns:
+
+Trade ID
+Symbol
+Direction
+Volume
+Entry
+Exit
+SL
+TP
+Open Time
+Close Time
+Gross PnL
+Commission
+Net PnL
+Reason
+
+Export to:
+
+trade_history.csv
+
+Use proper CSV escaping and formatting.
+
+---
+
+# 30. ANALYTICS
+
+Calculate:
+
+Total Net Profit
+Gross Profit
+Gross Loss
+Win Rate
+Profit Factor
+Maximum Drawdown
+Maximum Drawdown %
+Total Trades
+Winning Trades
+Losing Trades
+Average Win
+Average Loss
+Largest Win
+Largest Loss
+Average R:R
+Expectancy
+Maximum Consecutive Wins
+Maximum Consecutive Losses
+
+Also produce:
+
+Equity curve
+Drawdown curve
+Profit by trade
+Profit by session
+Profit by hour
+Profit by direction
+
+Avoid misleading calculations.
+
+For example, Profit Factor should handle zero gross loss safely.
+
+---
+
+# 31. ANALYTICS PANEL
+
+Create a tabbed analytics interface:
+
+Overview
+Equity Curve
+Drawdown
+Trade Statistics
+Session Analysis
+Direction Analysis
+
+Keep the analytics engine separate from the UI.
+
+---
+
+# 32. ALERT SYSTEM
+
+Implement configurable alerts:
+
+Price above
+Price below
+Price crosses
+Horizontal line touched
+Trendline crossed
+SL hit
+TP hit
+
+Each alert can have:
+
+condition
+symbol
+price
+enabled
+sound_enabled
+notification_enabled
+
+Allow alerts to be one-shot or recurring.
+
+---
+
+# 33. NOTIFICATIONS
+
+Create:
+
+NotificationManager
+SoundManager
+AlertManager
+
+Support:
+
+Order opened
+Order closed
+SL hit
+TP hit
+Price alert
+Replay completed
+
+Notifications can:
+
+play sound
+display desktop notification
+display in-app notification
+show chart marker
+
+Do not hard-code notification logic into the account engine.
+
+---
+
+# 34. JOURNAL
+
+Create a simple trade journal.
+
+For each trade allow:
+
+Strategy
+Setup
+Notes
+Tags
+Screenshot path if supported
+
+Example:
+
+Trade #15
+
+Strategy:
+Breaker Block
+
+Setup:
+London breakout
+
+Notes:
+Rejected previous high before entry.
+
+Allow journal data to be saved with workspace/trade history.
+
+---
+
+# 35. WORKSPACE SYSTEM
+
+Create:
+
+New Workspace
+Open Workspace
+Save Workspace
+Save As
+
+Persist:
+
+symbol
+timeframe
+replay position
+balance
+account settings
+drawings
+alerts
+chart settings
+indicators
+journal
+selected layout
+
+Use a versioned JSON schema.
+
+Example:
+
+{
+"version": 1,
+"symbol": "XAUUSD",
+"timeframe": "5m",
+"replay_index": 12500,
+"drawings": [],
+"alerts": [],
+"settings": {}
+}
+
+Handle future schema migrations gracefully.
+
+---
+
+# 36. INDICATOR ARCHITECTURE
+
+Create an indicator plugin system.
+
+Start with:
+
+EMA
+SMA
+RSI
+MACD
+ATR
+Bollinger Bands
+
+Use:
+
+BaseIndicator
+
+Each indicator should have:
+
+name
+parameters
+calculate()
+render()
+
+Indicators should not be tightly coupled to the trading engine.
+
+---
+
+# 37. MULTI-CHART SUPPORT
+
+Design the architecture so multiple charts can eventually be supported.
+
+Potential layouts:
+
+1 chart
+2 charts
+4 charts
+
+Synchronize where appropriate:
+
+crosshair
+time
+replay position
+
+Do not implement this at the expense of making the initial single-chart system unstable.
+
+---
+
+# 38. UI/UX
+
+Design the application as a modern professional dark trading terminal.
+
+Do NOT make it look like a default PyQt application.
+
+Use:
+
+dark background
+subtle panels
+clear hierarchy
+compact controls
+consistent spacing
+rounded controls where appropriate
+professional typography
+minimal visual noise
+
+Suggested visual direction:
+
+TradingView
+MetaTrader
+modern IDE
+professional financial terminal
+
+Do not overuse bright colors.
+
+Use restrained green/red accents for trading state.
+
+---
+
+# 39. MAIN WINDOW
+
+Recommended layout:
+
+Top:
+
+Menu bar
+Chart toolbar
+
+Center:
+
+Large chart
+
+Bottom:
+
+Replay controls
+
+Bottom/right:
+
+Execution panel
+
+Bottom:
+
+Tabbed information panel
+
+Tabs:
+
+Positions
+Orders
+History
+Analytics
+Journal
+
+The chart should receive the majority of available screen space.
+
+Panels should be resizable/collapsible.
+
+---
+
+# 40. MENU
+
+File:
+
+New Workspace
+Open CSV
+Open Workspace
+Save Workspace
+Save Workspace As
+Export Trade History
+Exit
+
+View:
+
+Toolbar
+Execution Panel
+Dashboard
+Positions
+Analytics
+Journal
+
+Chart:
+
+Timeframe
+Indicators
+Drawing Tools
+Chart Settings
+
+Replay:
+
+Play
+Pause
+Step Forward
+Step Back
+Reset
+Jump to Date
+Random Start
+
+Trading:
+
+Market Buy
+Market Sell
+Close Position
+Risk Calculator
+
+Help:
+
+Keyboard Shortcuts
+About
+
+---
+
+# 41. PERFORMANCE
+
+Replay must remain smooth.
+
+Do NOT:
+
+* block the GUI thread
+* recreate the entire chart for every candle
+* perform expensive analytics calculations every millisecond
+* perform unnecessary DataFrame copies
+
+Use efficient incremental updates.
+
+If the application reaches thousands of candles, it should remain responsive.
+
+---
+
+# 42. ERROR HANDLING
+
+Every major subsystem must have useful error handling.
+
+Handle:
+
+missing CSV
+invalid CSV
+missing columns
+invalid timestamps
+bad OHLC data
+invalid lot size
+invalid SL
+invalid TP
+insufficient margin
+invalid workspace
+corrupted workspace
+chart communication failure
+unsupported timeframe
+empty dataset
+
+Errors should be:
+
+* logged
+* presented to the user when appropriate
+* recoverable when possible
+
+Never silently swallow exceptions.
+
+---
+
+# 43. LOGGING
+
+Create:
+
+logs/trading_replay.log
+
+Use Python logging.
+
+Levels:
+
+DEBUG
+INFO
+WARNING
+ERROR
+CRITICAL
+
+Do not spam the log during high-frequency replay.
+
+---
+
+# 44. TESTING
+
+Create pytest tests for:
+
+CSV validation
+resampling
+synthetic data
+replay progression
+replay pause/play
+market buy
+market sell
+SL
+TP
+PnL
+commission
+spread
+slippage
+drawings serialization
+Fib calculations
+Long/Short RR
+analytics
+workspace save/load
+
+The account engine must be testable without PyQt.
+
+---
+
+# 45. SAMPLE DATA
+
+Create sample synthetic datasets for:
+
+XAUUSD M1
+XAUUSD M5
+EURUSD M5
+
+Do not rely on internet access to run the application.
+
+The project must work offline using included/generated sample data.
+
+---
+
+# 46. SECURITY / SAFETY OF FILE HANDLING
+
+Do not execute arbitrary code from CSV or workspace files.
+
+Treat workspace files strictly as data.
+
+Validate JSON before loading.
+
+Do not allow a malformed workspace to crash the application.
+
+---
+
+# 47. CONFIGURATION
+
+Create config.yaml for:
+
+initial balance
+default symbol
+default timeframe
+default lot size
+leverage
+spread
+commission
+slippage
+default replay speed
+chart theme
+notification settings
+sound volume
+
+Do not hard-code these throughout the codebase.
+
+---
+
+# 48. README
+
+Create a complete README containing:
+
+Project description
+Features
+Architecture
+Installation
+Virtual environment setup
+Dependency installation
+Run instructions
+CSV format
+Synthetic data usage
+Keyboard shortcuts
+Trading engine behavior
+Intrabar execution behavior
+Workspace format
+Testing
+Troubleshooting
+
+Quick start should be:
+
+Windows:
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
+
+Linux/macOS:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+---
+
+# 49. IMPORTANT LIBRARY VALIDATION
+
+Before implementing chart features, inspect the installed/current versions of:
+
+lightweight-charts
+lightweight-charts-python
+PyQt6
+PyQt6-WebEngine
+
+Determine what functionality is actually supported.
+
+Do not invent APIs.
+
+If a requested drawing feature is not supported directly by the Python wrapper, implement it through the JavaScript chart layer or a properly isolated custom chart primitive.
+
+Do not create fake placeholder buttons that claim to work.
+
+---
+
+# 50. DEVELOPMENT RULE
+
+When a feature cannot be implemented correctly yet:
+
+DO NOT fake it.
+
+Instead:
+
+1. Identify the technical limitation.
+2. Determine the correct architecture.
+3. Implement the interface/abstraction.
+4. Provide a working fallback if possible.
+5. Document the limitation.
+
+The goal is a real working application, not a visual mockup.
+
+---
+
+# 51. AGENT WORKFLOW
+
+Before writing substantial code:
+
+1. Inspect the repository.
+2. Determine whether files already exist.
+3. Preserve useful existing work.
+4. Create/update a project architecture document.
+5. Create a TODO checklist.
+6. Implement the foundation.
+7. Run tests.
+8. Fix errors.
+9. Continue feature-by-feature.
+
+Do not overwrite existing code blindly.
+
+If the repository is empty, initialize the project cleanly.
+
+---
+
+# 52. KEEP A DEVELOPMENT STATUS FILE
+
+Create:
+
+DEVELOPMENT_STATUS.md
+
+Track:
+
+Completed
+In Progress
+Blocked
+Next
+
+Example:
+
+## Completed
+
+* Project structure
+* Data loader
+* CSV validation
+
+## In Progress
+
+* Replay controller
+
+## Next
+
+* Account engine
+
+Update this file as development progresses.
+
+---
+
+# 53. ACCEPTANCE CRITERIA
+
+The application is considered functional only when a user can:
+
+1. Launch the application.
+
+2. Load a CSV.
+
+3. See candlesticks.
+
+4. Select a timeframe.
+
+5. Start replay.
+
+6. See candles appear one-by-one without future candles being visible.
+
+7. Pause replay.
+
+8. Step through candles.
+
+9. Change replay speed.
+
+10. Execute Market Buy.
+
+11. Execute Market Sell.
+
+12. Set SL.
+
+13. Set TP.
+
+14. Have SL/TP automatically trigger when candle High/Low reaches the level.
+
+15. See live PnL.
+
+16. See entry/exit markers.
+
+17. See active SL/TP lines.
+
+18. Close a position.
+
+19. See the completed trade in history.
+
+20. Export trade history.
+
+21. See analytics.
+
+22. Draw a trendline.
+
+23. Draw a rectangle.
+
+24. Draw Fibonacci.
+
+25. Add text.
+
+26. Draw Long/Short analysis tools.
+
+27. Move and delete drawings.
+
+28. Undo/redo drawings.
+
+29. Create a price alert.
+
+30. Receive sound/in-app notification.
+
+31. Save workspace.
+
+32. Close application.
+
+33. Reopen workspace.
+
+34. Restore drawings, replay position and settings.
+
+---
+
+# 54. QUALITY STANDARD
+
+The code must be:
+
+* modular
+* typed where practical
+* documented
+* testable
+* maintainable
+* extensible
+* PEP8-compatible
+* free of unnecessary global state
+* free of giant monolithic classes
+* free of duplicated business logic
+
+Use dataclasses and enums where appropriate.
+
+Prefer dependency injection for major services.
+
+Keep GUI code separate from business logic.
+
+---
+
+# 55. DO NOT DO THESE THINGS
+
+Do NOT:
+
+* put the entire application in main.py
+* put the entire GUI in one giant file
+* put trading calculations inside widgets
+* put replay logic inside chart code
+* hard-code configuration everywhere
+* silently ignore invalid CSVs
+* show future candles during replay
+* make Long/Short drawings execute trades automatically
+* fake unsupported chart functionality
+* block the GUI thread
+* use arbitrary sleep() loops for replay
+* make analytics depend directly on GUI widgets
+* use global variables as the primary application state
+* overwrite existing project files without inspecting them
+* skip tests
+* declare a feature complete if it only has a placeholder UI
+
+---
+
+# 56. FIRST TASK
+
+Do NOT immediately attempt every feature.
+
+Start by inspecting the repository.
+
+Then create:
+
+1. Project structure
+2. requirements.txt
+3. README.md
+4. DEVELOPMENT_STATUS.md
+5. config.yaml
+6. data layer
+7. replay engine
+8. event bus
+9. account engine foundation
+10. pytest tests for those components
+
+Run the tests.
+
+Only after those are stable should you begin implementing the GUI.
+
+---
+
+# 57. FINAL DESIGN GOAL
+
+The finished application should feel like:
+
+"TradingView Replay + MetaTrader-style execution + a lightweight trading journal + a backtesting laboratory"
+
+It should be useful for manually testing strategies on:
+
+XAUUSD
+Forex
+Crypto
+other OHLCV instruments
+
+The architecture must also leave room for future features such as:
+
+* automated strategy backtesting
+* strategy plugins
+* custom indicators
+* multi-timeframe analysis
+* multiple charts
+* broker adapters
+* real-time market data
+* algorithmic trading
+* strategy optimization
+* Monte Carlo analysis
+* screenshot-based trade journaling
+* cloud workspace synchronization
+
+Do not implement those future features now unless required for the architecture, but ensure the current architecture does not make them unnecessarily difficult later.
+
+---
+
+# START NOW
+
+Begin by inspecting the repository and then implement PHASE 1.
+
+Do not generate a superficial mockup.
+
+Build actual working software.
+
+After completing each major phase, run the relevant tests and report:
+
+* what was implemented
+* files changed
+* tests run
+* test results
+* known limitations
+* next phase
+
+Continue until the current phase is genuinely working before moving to the next one.

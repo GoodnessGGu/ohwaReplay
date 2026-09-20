@@ -1,0 +1,69 @@
+app:
+  name: "Trading Replay Lab"
+  version: "1.0.0"
+  log_level: "INFO"
+  log_file: "logs/trading_replay.log"
+
+account:
+  initial_balance: 10000.0
+  currency: "USD"
+  leverage: 100
+  default_lot_size: 1.0
+  spread: 0.20
+  slippage: 0.05
+  commission: 7.0  # per lot round-turn
+  intrabar_execution: "CONSERVATIVE"  # CONSERVATIVE, SL_FIRST, TP_FIRST, OPTIMISTIC
+
+market:
+  default_symbol: "XAUUSD"
+  default_timeframe: "5m"
+  symbols:
+    XAUUSD:
+      point_value: 100.0
+      pip_size: 0.1
+      digits: 2
+      spread: 0.20
+    EURUSD:
+      point_value: 100000.0
+      pip_size: 0.0001
+      digits: 5
+      spread: 0.0001
+    GBPUSD:
+      point_value: 100000.0
+      pip_size: 0.0001
+      digits: 5
+      spread: 0.00015
+    USDJPY:
+      point_value: 1000.0
+      pip_size: 0.01
+      digits: 3
+      spread: 0.01
+    BTCUSD:
+      point_value: 1.0
+      pip_size: 1.0
+      digits: 2
+      spread: 5.0
+
+replay:
+  default_speed: 1.0
+  speed_options: [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+  timer_interval_ms: 1000
+
+chart:
+  theme: "dark"
+  bg_color: "#131722"
+  grid_color: "#1e222d"
+  candle_up_color: "#26a69a"
+  candle_down_color: "#ef5350"
+  wick_up_color: "#26a69a"
+  wick_down_color: "#ef5350"
+  volume_up_color: "rgba(38, 166, 154, 0.4)"
+  volume_down_color: "rgba(239, 83, 80, 0.4)"
+
+notifications:
+  sound_enabled: true
+  sound_volume: 0.8
+  in_app_popup: true
+
+fibonacci:
+  default_levels: [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618]
