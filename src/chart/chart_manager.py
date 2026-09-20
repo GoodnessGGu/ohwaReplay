@@ -244,30 +244,103 @@ class ChartManager:
                         "data": data_down,
                     })
 
-                # Smart Trail Buy / Sell Signal Markers
-                if "BullSignal" in res_df.columns and "BearSignal" in res_df.columns:
-                    bulls = res_df["BullSignal"].iloc[-n_work:].values
-                    bears = res_df["BearSignal"].iloc[-n_work:].values
-                    markers = []
+            elif name == "FVG":
+                if "fvg_top" in res_df.columns and "fvg_bottom" in res_df.columns:
+                    top_vals = res_df["fvg_top"].iloc[-n_work:].values
+                    bot_vals = res_df["fvg_bottom"].iloc[-n_work:].values
+                    types = res_df["fvg_type"].iloc[-n_work:].values
+
+                    bull_top = []
+                    bull_bot = []
+                    bear_top = []
+                    bear_bot = []
+
                     for i in range(n_work):
-                        if bulls[i]:
+                        t = int(ts_list[i])
+                        t_val = float(top_vals[i]) if pd.notna(top_vals[i]) else None
+                        b_val = float(bot_vals[i]) if pd.notna(bot_vals[i]) else None
+
+                        if types[i] == "bullish" and t_val is not None and b_val is not None:
+                            bull_top.append({"time": t, "value": t_val})
+                            bull_bot.append({"time": t, "value": b_val})
+                        elif types[i] == "bearish" and t_val is not None and b_val is not None:
+                            bear_top.append({"time": t, "value": t_val})
+                            bear_bot.append({"time": t, "value": b_val})
+
+                    if bull_top:
+                        series_list.append({
+                            "type": "line",
+                            "color": params.get("bullish_color", "#26a69a"),
+                            "lineWidth": 1.5,
+                            "lineStyle": "dashed",
+                            "visible": visible,
+                            "data": bull_top,
+                        })
+                    if bear_top:
+                        series_list.append({
+                            "type": "line",
+                            "color": params.get("bearish_color", "#ef5350"),
+                            "lineWidth": 1.5,
+                            "lineStyle": "dashed",
+                            "visible": visible,
+                            "data": bear_top,
+                        })
+
+            elif name == "MarketStructure":
+                markers = []
+                bos_data = []
+                choch_data = []
+
+                if "structure_type" in res_df.columns:
+                    st_types = res_df["structure_type"].iloc[-n_work:].values
+                    bos_vals = res_df["bos_level"].iloc[-n_work:].values if "bos_level" in res_df.columns else [None] * n_work
+                    choch_vals = res_df["choch_level"].iloc[-n_work:].values if "choch_level" in res_df.columns else [None] * n_work
+
+                    for i in range(n_work):
+                        t = int(ts_list[i])
+                        st = st_types[i]
+                        b_val = float(bos_vals[i]) if pd.notna(bos_vals[i]) else None
+                        c_val = float(choch_vals[i]) if pd.notna(choch_vals[i]) else None
+
+                        if "BOS" in st and b_val is not None:
+                            bos_data.append({"time": t, "value": b_val})
                             markers.append({
-                                "time": int(ts_list[i]),
-                                "position": "belowBar",
-                                "color": params.get("color_up", "#00e676"),
-                                "shape": "arrowUp",
-                                "text": "BUY",
+                                "time": t,
+                                "position": "aboveBar" if "BULL" in st else "belowBar",
+                                "color": params.get("bos_color", "#2962ff"),
+                                "shape": "circle",
+                                "text": "BOS",
                             })
-                        elif bears[i]:
+                        elif "CHOCH" in st and c_val is not None:
+                            choch_data.append({"time": t, "value": c_val})
                             markers.append({
-                                "time": int(ts_list[i]),
-                                "position": "aboveBar",
-                                "color": params.get("color_down", "#ff5252"),
-                                "shape": "arrowDown",
-                                "text": "SELL",
+                                "time": t,
+                                "position": "aboveBar" if "BULL" in st else "belowBar",
+                                "color": params.get("choch_color", "#ff9800"),
+                                "shape": "circle",
+                                "text": "CHoCH",
                             })
-                    if markers and visible:
-                        self.widget.set_markers(markers)
+
+                if bos_data:
+                    series_list.append({
+                        "type": "line",
+                        "color": params.get("bos_color", "#2962ff"),
+                        "lineWidth": 1.5,
+                        "lineStyle": "dashed",
+                        "visible": visible,
+                        "data": bos_data,
+                    })
+                if choch_data:
+                    series_list.append({
+                        "type": "line",
+                        "color": params.get("choch_color", "#ff9800"),
+                        "lineWidth": 1.5,
+                        "lineStyle": "solid",
+                        "visible": visible,
+                        "data": choch_data,
+                    })
+                if markers and visible:
+                    self.widget.set_markers(markers)
 
             if series_list:
                 self.widget.set_indicator_data(ind_id, series_list)

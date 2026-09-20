@@ -105,6 +105,31 @@ class IndicatorPropertyDialog(QDialog):
             self.combo_source.setCurrentText(str(self.params.get("source", "close")))
             form_inputs.addRow("Source:", self.combo_source)
 
+        elif name == "FVG":
+            self.spin_min_gap = QDoubleSpinBox()
+            self.spin_min_gap.setRange(0.0, 100.0)
+            self.spin_min_gap.setSingleStep(0.1)
+            self.spin_min_gap.setValue(float(self.params.get("min_gap_points", 0.0)))
+            form_inputs.addRow("Min Gap Points:", self.spin_min_gap)
+
+            self.chk_show_mit = QCheckBox("Show Mitigated FVGs")
+            self.chk_show_mit.setChecked(bool(self.params.get("show_mitigated", False)))
+            form_inputs.addRow("", self.chk_show_mit)
+
+        elif name == "MarketStructure":
+            self.spin_swing_len = QSpinBox()
+            self.spin_swing_len.setRange(2, 50)
+            self.spin_swing_len.setValue(int(self.params.get("swing_length", 5)))
+            form_inputs.addRow("Swing Pivot Length:", self.spin_swing_len)
+
+            self.chk_show_bos = QCheckBox("Show BOS (Break of Structure)")
+            self.chk_show_bos.setChecked(bool(self.params.get("show_bos", True)))
+            form_inputs.addRow("", self.chk_show_bos)
+
+            self.chk_show_choch = QCheckBox("Show CHoCH (Change of Character)")
+            self.chk_show_choch.setChecked(bool(self.params.get("show_choch", True)))
+            form_inputs.addRow("", self.chk_show_choch)
+
         layout.addWidget(grp_inputs)
 
         # Style Group
@@ -183,6 +208,32 @@ class IndicatorPropertyDialog(QDialog):
             self.btn_sig_color.clicked.connect(lambda: self._choose_color("color_signal", self.btn_sig_color))
             form_style.addRow("Signal Line Color:", self.btn_sig_color)
 
+        elif name == "FVG":
+            self.btn_bull_color = QPushButton()
+            self.cur_bull_color = self.params.get("bullish_color", "#26a69a")
+            self._update_color_btn(self.btn_bull_color, self.cur_bull_color)
+            self.btn_bull_color.clicked.connect(lambda: self._choose_color("bullish_color", self.btn_bull_color))
+            form_style.addRow("Bullish FVG Color:", self.btn_bull_color)
+
+            self.btn_bear_color = QPushButton()
+            self.cur_bear_color = self.params.get("bearish_color", "#ef5350")
+            self._update_color_btn(self.btn_bear_color, self.cur_bear_color)
+            self.btn_bear_color.clicked.connect(lambda: self._choose_color("bearish_color", self.btn_bear_color))
+            form_style.addRow("Bearish FVG Color:", self.btn_bear_color)
+
+        elif name == "MarketStructure":
+            self.btn_bos_color = QPushButton()
+            self.cur_bos_color = self.params.get("bos_color", "#2962ff")
+            self._update_color_btn(self.btn_bos_color, self.cur_bos_color)
+            self.btn_bos_color.clicked.connect(lambda: self._choose_color("bos_color", self.btn_bos_color))
+            form_style.addRow("BOS Level Color:", self.btn_bos_color)
+
+            self.btn_choch_color = QPushButton()
+            self.cur_choch_color = self.params.get("choch_color", "#ff9800")
+            self._update_color_btn(self.btn_choch_color, self.cur_choch_color)
+            self.btn_choch_color.clicked.connect(lambda: self._choose_color("choch_color", self.btn_choch_color))
+            form_style.addRow("CHoCH Level Color:", self.btn_choch_color)
+
         layout.addWidget(grp_style)
 
         # Buttons
@@ -237,6 +288,15 @@ class IndicatorPropertyDialog(QDialog):
             self.params["lineWidth"] = float(self.combo_width.currentText().replace("px", ""))
             self.params["lineStyle"] = self.combo_style.currentText()
             self.ind_config["display_name"] = f"Smart Trail ({self.params['length']}, {self.params['multiplier']})"
+        elif name == "FVG":
+            self.params["min_gap_points"] = self.spin_min_gap.value()
+            self.params["show_mitigated"] = self.chk_show_mit.isChecked()
+            self.ind_config["display_name"] = f"SMC FVG ({self.params['min_gap_points']} pts)"
+        elif name == "MarketStructure":
+            self.params["swing_length"] = self.spin_swing_len.value()
+            self.params["show_bos"] = self.chk_show_bos.isChecked()
+            self.params["show_choch"] = self.chk_show_choch.isChecked()
+            self.ind_config["display_name"] = f"Market Structure ({self.params['swing_length']})"
 
         self.ind_config["params"] = self.params
         self.accept()
@@ -286,6 +346,8 @@ class IndicatorDialog(QDialog):
         self.combo_ind_type = QComboBox()
         self.combo_ind_type.addItems([
             "Smart Trail Signals (14, 2.0, 3)",
+            "Fair Value Gaps (SMC FVG)",
+            "Market Structure (BOS / CHoCH)",
             "EMA - Exponential Moving Average (20)",
             "SMA - Simple Moving Average (50)",
             "Bollinger Bands (20, 2.0)",
@@ -406,6 +468,33 @@ class IndicatorDialog(QDialog):
                     "color_down": "#ff5252",
                     "lineWidth": 2,
                     "lineStyle": "solid",
+                }
+            }
+        elif "FVG" in choice or "Fair Value" in choice:
+            new_ind = {
+                "id": uid,
+                "name": "FVG",
+                "display_name": "SMC FVG (0.0 pts)",
+                "visible": True,
+                "params": {
+                    "min_gap_points": 0.0,
+                    "show_mitigated": False,
+                    "bullish_color": "#26a69a",
+                    "bearish_color": "#ef5350",
+                }
+            }
+        elif "Structure" in choice or "BOS" in choice:
+            new_ind = {
+                "id": uid,
+                "name": "MarketStructure",
+                "display_name": "Market Structure (5)",
+                "visible": True,
+                "params": {
+                    "swing_length": 5,
+                    "show_bos": True,
+                    "show_choch": True,
+                    "bos_color": "#2962ff",
+                    "choch_color": "#ff9800",
                 }
             }
         elif "EMA" in choice:

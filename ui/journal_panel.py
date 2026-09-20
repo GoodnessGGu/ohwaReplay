@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -34,7 +35,7 @@ class JournalPanel(QWidget):
 
         # Left list of trades
         left_box = QVBoxLayout()
-        lbl_list = QLabel("Journal Trades:")
+        lbl_list = QLabel("Closed Trades Log:")
         lbl_list.setStyleSheet("font-weight: 600; color: #848e9c;")
         left_box.addWidget(lbl_list)
 
@@ -49,28 +50,32 @@ class JournalPanel(QWidget):
 
         # Right editor form
         right_box = QVBoxLayout()
-        grp_editor = QGroupBox("TRADE LOG & NOTES")
+        grp_editor = QGroupBox("TRADE LOG, REFLECTION & NOTES")
         form = QFormLayout(grp_editor)
 
-        self.txt_strategy = QLineEdit()
-        self.txt_strategy.setPlaceholderText("e.g. Breakout, FVG, Support/Resistance")
-        form.addRow("Strategy:", self.txt_strategy)
+        # Summary Header info
+        self.lbl_trade_summary = QLabel("Select a trade on the left to review and annotate.")
+        self.lbl_trade_summary.setStyleSheet("color: #2962ff; font-weight: bold; font-size: 11px;")
+        form.addRow("Execution:", self.lbl_trade_summary)
 
-        self.txt_setup = QLineEdit()
-        self.txt_setup.setPlaceholderText("e.g. London open expansion")
-        form.addRow("Setup:", self.txt_setup)
+        self.txt_strategy = QLineEdit()
+        self.txt_strategy.setPlaceholderText("e.g. Breakout, FVG, Market Structure, Support/Resistance")
+        form.addRow("Strategy / Setup:", self.txt_strategy)
 
         self.txt_tags = QLineEdit()
-        self.txt_tags.setPlaceholderText("e.g. A+ setup, FOMC, follow-the-trend")
+        self.txt_tags.setPlaceholderText("e.g. A+ setup, London Open, Trend Following, High Volume")
         form.addRow("Tags:", self.txt_tags)
 
         self.txt_notes = QTextEdit()
-        self.txt_notes.setPlaceholderText("Enter detailed execution rationale, psychology notes, lessons learned...")
-        form.addRow("Notes:", self.txt_notes)
+        self.txt_notes.setPlaceholderText("Enter detailed execution rationale, emotional discipline, psychology notes, lessons learned...")
+        form.addRow("Trade Notes:", self.txt_notes)
 
-        btn_save = QPushButton("Save Journal Entry")
+        btn_box = QHBoxLayout()
+        btn_save = QPushButton("💾 Save Journal Entry")
+        btn_save.setStyleSheet("background-color: #2962ff; color: #ffffff; font-weight: bold; padding: 4px 12px; border-radius: 4px;")
         btn_save.clicked.connect(self._on_save)
-        form.addRow("", btn_save)
+        btn_box.addWidget(btn_save)
+        form.addRow("", btn_box)
 
         right_box.addWidget(grp_editor)
         layout.addLayout(right_box, 2)
@@ -81,7 +86,10 @@ class JournalPanel(QWidget):
         for row, t in enumerate(trades):
             self.table.setItem(row, 0, QTableWidgetItem(t.id))
             self.table.setItem(row, 1, QTableWidgetItem(t.symbol))
-            self.table.setItem(row, 2, QTableWidgetItem(f"${t.net_pnl:+,.2f}"))
+
+            pnl_item = QTableWidgetItem(f"${t.net_pnl:+,.2f}")
+            pnl_item.setForeground(Qt.GlobalColor.green if t.net_pnl >= 0 else Qt.GlobalColor.red)
+            self.table.setItem(row, 2, pnl_item)
             self.table.setItem(row, 3, QTableWidgetItem(t.strategy or "--"))
 
     def _on_trade_selected(self) -> None:
@@ -95,6 +103,14 @@ class JournalPanel(QWidget):
             self.txt_strategy.setText(t.strategy)
             self.txt_notes.setPlainText(t.notes)
             self.txt_tags.setText(t.tags)
+
+            dir_str = t.direction.value if hasattr(t.direction, "value") else str(t.direction)
+            close_p = f"{t.close_price:.2f}" if t.close_price else "--"
+            self.lbl_trade_summary.setText(
+                f"{dir_str} {t.lot_size:.2f} lots @ {t.entry_price:.2f} -> Closed @ {close_p} | Net PnL: ${t.net_pnl:+,.2f}"
+            )
+            color = "#26a69a" if t.net_pnl >= 0 else "#ef5350"
+            self.lbl_trade_summary.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 11px;")
 
     def _on_save(self) -> None:
         if not self.selected_trade_id:

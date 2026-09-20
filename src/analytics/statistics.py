@@ -44,6 +44,8 @@ class TradeStatistics:
     short_win_rate_pct: float = 0.0
     short_profit: float = 0.0
 
+    equity_curve: List[float] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
 
@@ -55,6 +57,7 @@ class StatisticsCalculator:
     def calculate(trades: List[Position], initial_balance: float = 10000.0) -> TradeStatistics:
         stats = TradeStatistics()
         if not trades:
+            stats.equity_curve = [initial_balance]
             return stats
 
         stats.total_trades = len(trades)
@@ -118,9 +121,11 @@ class StatisticsCalculator:
         peak = initial_balance
         max_dd_amt = 0.0
         max_dd_pct = 0.0
+        eq_curve = [initial_balance]
 
         for pnl in net_pnls:
             equity += pnl
+            eq_curve.append(round(equity, 2))
             if equity > peak:
                 peak = equity
             dd_amt = peak - equity
@@ -130,6 +135,7 @@ class StatisticsCalculator:
             if dd_pct > max_dd_pct:
                 max_dd_pct = dd_pct
 
+        stats.equity_curve = eq_curve
         stats.max_drawdown_amount = round(max_dd_amt, 2)
         stats.max_drawdown_pct = round(max_dd_pct, 2)
 

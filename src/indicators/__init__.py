@@ -6,6 +6,8 @@ from .all_indicators import (
     RSIIndicator,
     SMAIndicator,
     SmartTrailIndicator,
+    FVGIndicator,
+    MarketStructureIndicator,
 )
 from .base_indicator import BaseIndicator
 from .registry import IndicatorRegistry
@@ -19,5 +21,7 @@ __all__ = [
     "ATRIndicator",
     "BollingerBandsIndicator",
     "SmartTrailIndicator",
+    "FVGIndicator",
+    "MarketStructureIndicator",
     "IndicatorRegistry",
 ]

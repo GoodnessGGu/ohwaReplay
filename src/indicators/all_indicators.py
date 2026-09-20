@@ -255,3 +255,6 @@ class SmartTrailIndicator(BaseIndicator):
         res["BearSignal"] = bear_signals
         return res
 
+
+from src.indicators.smc import FVGIndicator, MarketStructureIndicator
+

@@ -116,3 +116,25 @@ def test_smart_trail_calculation(sample_ohlcv_df):
     # Check signal booleans
     assert res["BullSignal"].dtype == bool
     assert res["BearSignal"].dtype == bool
+
+
+def test_fvg_calculation(sample_ohlcv_df):
+    fvg_ind = IndicatorRegistry.create("FVG", min_gap_pct=0.0001, lookback=50)
+    res = fvg_ind.calculate(sample_ohlcv_df)
+    assert "fvg_top" in res.columns
+    assert "fvg_bottom" in res.columns
+    assert "fvg_type" in res.columns
+    assert "fvg_mitigated" in res.columns
+    assert len(res) == len(sample_ohlcv_df)
+
+
+def test_market_structure_calculation(sample_ohlcv_df):
+    ms_ind = IndicatorRegistry.create("MarketStructure", swing_length=3)
+    res = ms_ind.calculate(sample_ohlcv_df)
+    assert "structure_type" in res.columns
+    assert "bos_level" in res.columns
+    assert "choch_level" in res.columns
+    assert "trend_direction" in res.columns
+    assert len(res) == len(sample_ohlcv_df)
+    assert set(res["trend_direction"].unique()).issubset({1, -1, 0})
+

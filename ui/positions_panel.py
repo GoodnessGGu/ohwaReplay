@@ -20,6 +20,8 @@ class PositionsPanel(QWidget):
     """Panel displaying active open trading positions and pending orders."""
 
     close_position_requested = pyqtSignal(str)
+    partial_close_requested = pyqtSignal(str, float)
+    move_to_be_requested = pyqtSignal(str)
     cancel_pending_order_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -33,7 +35,7 @@ class PositionsPanel(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Symbol", "Type / Direction", "Volume", "Entry Price", "Current Price", "SL", "TP", "PnL ($)", "Time", "Action"
+            "ID", "Symbol", "Type / Direction", "Volume", "Entry Price", "Current Price", "SL", "TP", "PnL ($)", "Time", "Actions"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(10, QHeaderView.ResizeMode.ResizeToContents)
@@ -70,11 +72,31 @@ class PositionsPanel(QWidget):
             time_str = p.open_time.strftime("%Y-%m-%d %H:%M") if p.open_time else "--"
             self.table.setItem(row, 9, QTableWidgetItem(time_str))
 
-            # Close button
-            btn_close = QPushButton("Close")
-            btn_close.setStyleSheet("background-color: #ef5350; color: #ffffff; padding: 2px 8px; font-weight: bold; border-radius: 3px;")
+            # Action Buttons: [⚡ BE] [½ 50%] [✕ Close]
+            action_widget = QWidget()
+            action_layout = QHBoxLayout(action_widget)
+            action_layout.setContentsMargins(2, 2, 2, 2)
+            action_layout.setSpacing(4)
+
+            btn_be = QPushButton("⚡ BE")
+            btn_be.setToolTip("Move Stop Loss to Break-Even (Entry Price)")
+            btn_be.setStyleSheet("background-color: #ff9800; color: #131722; padding: 2px 6px; font-weight: bold; border-radius: 3px; font-size: 11px;")
+            btn_be.clicked.connect(lambda checked, pid=p.id: self.move_to_be_requested.emit(pid))
+            action_layout.addWidget(btn_be)
+
+            btn_half = QPushButton("½ 50%")
+            btn_half.setToolTip("Close 50% partial position")
+            btn_half.setStyleSheet("background-color: #2962ff; color: #ffffff; padding: 2px 6px; font-weight: bold; border-radius: 3px; font-size: 11px;")
+            btn_half.clicked.connect(lambda checked, pid=p.id: self.partial_close_requested.emit(pid, 0.5))
+            action_layout.addWidget(btn_half)
+
+            btn_close = QPushButton("✕ Close")
+            btn_close.setToolTip("Close entire position at current market price")
+            btn_close.setStyleSheet("background-color: #ef5350; color: #ffffff; padding: 2px 6px; font-weight: bold; border-radius: 3px; font-size: 11px;")
             btn_close.clicked.connect(lambda checked, pid=p.id: self.close_position_requested.emit(pid))
-            self.table.setCellWidget(row, 10, btn_close)
+            action_layout.addWidget(btn_close)
+
+            self.table.setCellWidget(row, 10, action_widget)
 
         # 2. Pending Orders
         offset = len(positions)

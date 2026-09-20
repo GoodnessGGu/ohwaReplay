@@ -274,3 +274,53 @@ def test_pending_orders_limit_and_stop():
     # Cancel pending order
     assert account.cancel_pending_order(ord2.id) is True
     assert len(account.pending_orders) == 0
+
+
+def test_close_partial_position():
+    account = AccountEngine(initial_balance=10000.0, spread=0.0, slippage=0.0, commission_per_lot=0.0)
+    success, pos, _ = account.open_market_order(
+        direction=Direction.BUY,
+        symbol="XAUUSD",
+        lot_size=1.0,
+        current_price=2000.0,
+        stop_loss=1990.0,
+        take_profit=2020.0,
+    )
+    assert success is True
+    assert pos.lot_size == 1.0
+
+    # Partial close 50% @ 2010.0
+    success, part_pos, msg = account.close_partial_position(
+        position_id=pos.id,
+        percentage=0.5,
+        current_price=2010.0,
+    )
+    assert success is True
+    assert part_pos is not None
+    assert part_pos.lot_size == 0.50
+    # Profit for 0.50 lots: (2010 - 2000) * 0.50 * 100 = 500.0
+    assert part_pos.realized_pnl == 500.0
+    assert account.balance == 10500.0
+    assert len(account.trade_history) == 1
+
+    # Remaining position check
+    assert pos.id in account.positions
+    assert account.positions[pos.id].lot_size == 0.50
+
+
+def test_move_sl_to_break_even():
+    account = AccountEngine(initial_balance=10000.0, spread=0.0, slippage=0.0, commission_per_lot=0.0)
+    success, pos, _ = account.open_market_order(
+        direction=Direction.BUY,
+        symbol="XAUUSD",
+        lot_size=1.0,
+        current_price=2000.0,
+        stop_loss=1990.0,
+        take_profit=2020.0,
+    )
+    assert success is True
+    assert pos.stop_loss == 1990.0
+
+    success, msg = account.move_sl_to_break_even(pos.id)
+    assert success is True
+    assert pos.stop_loss == 2000.0

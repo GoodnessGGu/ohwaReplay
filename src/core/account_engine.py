@@ -298,6 +298,121 @@ class AccountEngine:
 
         return True, pos, "Position closed."
 
+    def close_partial_position(
+        self,
+        position_id: str,
+        percentage: float = 0.5,
+        current_price: Optional[float] = None,
+        timestamp: Optional[int] = None,
+        dt: Optional[datetime] = None,
+        reason: CloseReason = CloseReason.MANUAL,
+    ) -> Tuple[bool, Optional[Position], str]:
+        """
+        Closes a partial portion of an active position (e.g. 50%).
+        Creates a closed Position record for trade history, and updates remaining position volume and account balance.
+        """
+        if position_id not in self.positions:
+            return False, None, f"Position '{position_id}' not found."
+
+        if percentage <= 0.0 or percentage > 1.0:
+            return False, None, "Partial percentage must be between 0 and 1.0 (e.g. 0.5 for 50%)."
+
+        pos = self.positions[position_id]
+        if percentage >= 0.9999 or pos.lot_size <= 0.01:
+            # Full close if 100% or minimum lot size
+            return self.close_position(
+                position_id=position_id,
+                current_price=current_price if current_price is not None else pos.current_price,
+                timestamp=timestamp,
+                dt=dt,
+                reason=reason,
+            )
+
+        close_lots = round(pos.lot_size * percentage, 2)
+        remaining_lots = round(pos.lot_size - close_lots, 2)
+        if close_lots <= 0 or remaining_lots <= 0:
+            return self.close_position(
+                position_id=position_id,
+                current_price=current_price if current_price is not None else pos.current_price,
+                timestamp=timestamp,
+                dt=dt,
+                reason=reason,
+            )
+
+        exec_price = current_price if current_price is not None else pos.current_price
+        half_spread = self.spread / 2.0
+        if pos.direction == Direction.BUY:
+            exit_price = exec_price - half_spread - self.slippage
+        else:
+            exit_price = exec_price + half_spread + self.slippage
+
+        # Calculate proportional commission
+        trade_commission = round(pos.commission * (close_lots / pos.lot_size), 2)
+        pos.commission = round(pos.commission - trade_commission, 2)
+
+        # Create closed Position record for the partial execution
+        partial_record = Position(
+            id=f"{pos.id}_p{int(percentage * 100)}",
+            symbol=pos.symbol,
+            direction=pos.direction,
+            entry_price=pos.entry_price,
+            current_price=round(exec_price, 5),
+            lot_size=close_lots,
+            point_value=pos.point_value,
+            stop_loss=pos.stop_loss,
+            take_profit=pos.take_profit,
+            open_time=pos.open_time,
+            open_timestamp=pos.open_timestamp,
+            commission=trade_commission,
+            strategy=pos.strategy,
+            notes=f"Partial close {int(percentage * 100)}% | {pos.notes}".strip(),
+            tags=pos.tags,
+        )
+
+        realized = partial_record.close(
+            close_price=round(exit_price, 5),
+            close_time=dt or datetime.utcnow(),
+            close_timestamp=timestamp,
+            reason=reason,
+        )
+
+        self.balance += realized
+        self.trade_history.append(partial_record)
+
+        # Update remaining active position
+        pos.lot_size = remaining_lots
+        pos.calculate_unrealized_pnl(pos.current_price)
+
+        logger.info(
+            f"Partial close on {pos.id}: closed {close_lots} lots ({int(percentage * 100)}%) @ {exit_price}, remaining: {remaining_lots} lots, Realized PnL: ${realized:,.2f}"
+        )
+
+        self.bus.emit(EventType.ORDER_CLOSED, partial_record.to_dict())
+        self.bus.emit(EventType.POSITION_UPDATED, pos.to_dict())
+        self.bus.emit(EventType.ACCOUNT_UPDATED, self.get_account_summary())
+
+        return True, partial_record, f"Partial position closed: {close_lots} lots ({int(percentage * 100)}%)."
+
+    def move_sl_to_break_even(self, position_id: str, offset: float = 0.0) -> Tuple[bool, str]:
+        """
+        Moves the stop loss of an open position to its exact entry price (+/- optional offset/buffer).
+        """
+        if position_id not in self.positions:
+            return False, f"Position '{position_id}' not found."
+
+        pos = self.positions[position_id]
+        if pos.direction == Direction.BUY:
+            new_sl = round(pos.entry_price + offset, 5)
+        else:
+            new_sl = round(pos.entry_price - offset, 5)
+
+        pos.stop_loss = new_sl
+        logger.info(f"Moved SL to Break-Even on position {pos.id} @ {new_sl} (entry: {pos.entry_price})")
+
+        self.bus.emit(EventType.POSITION_UPDATED, pos.to_dict())
+        self.bus.emit(EventType.ACCOUNT_UPDATED, self.get_account_summary())
+        return True, f"Stop loss moved to break-even ({new_sl:.2f})."
+
     def close_all_positions(
         self,
         current_price: float,

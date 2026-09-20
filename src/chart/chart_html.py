@@ -186,6 +186,8 @@ def get_chart_html(theme: str = "dark") -> str:
       <span id="prop-pos-risk-badge" style="color:#ef5350;font-size:10px;font-weight:600;">Risk: -10.00</span>
       <span id="prop-pos-reward-badge" style="color:#26a69a;font-size:10px;font-weight:600;">Target: +20.00</span>
       <button id="prop-btn-exec-trade" title="Execute Market Order with this SL/TP" style="background:#26a69a;color:#ffffff;font-weight:700;font-size:11px;padding:3px 8px;border:none;border-radius:3px;cursor:pointer;display:flex;align-items:center;gap:4px;">⚡ Buy Market</button>
+      <button id="prop-btn-exec-limit" title="Place Pending Limit/Stop Order" style="background:#2962ff;color:#ffffff;font-weight:700;font-size:11px;padding:3px 8px;border:none;border-radius:3px;cursor:pointer;display:flex;align-items:center;gap:4px;">⏳ Set Limit</button>
+      <button id="prop-btn-move-be" title="Move Stop Loss to Break Even" style="background:#ff9800;color:#131722;font-weight:700;font-size:11px;padding:3px 8px;border:none;border-radius:3px;cursor:pointer;display:flex;align-items:center;gap:4px;">⚡ Move to BE</button>
       <button id="prop-btn-apply-panel" title="Copy SL and TP to Right-Side Execution Panel" style="background:#2a2e39;color:#d1d4dc;font-weight:600;font-size:11px;padding:3px 7px;border:1px solid #434651;border-radius:3px;cursor:pointer;">📋 Copy to Panel</button>
       <div class="separator"></div>
     </div>
@@ -606,6 +608,148 @@ def get_chart_html(theme: str = "dark") -> str:
   // Render Canvas Drawings & Overlays
   function renderDrawings() {{
     ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+
+    // Session Background Highlighting & Killzones
+    if (currentCandles && currentCandles.length > 0) {{
+      const nCandles = currentCandles.length;
+      let curSession = null;
+      let sStart = null;
+      let sEnd = null;
+      let curCol = null;
+      let curLabel = null;
+
+      const scanStart = Math.max(0, nCandles - 600);
+      for (let i = scanStart; i < nCandles; i++) {{
+        const c = currentCandles[i];
+        const d = new Date(c.time * 1000);
+        const h = d.getUTCHours();
+        let sess = null;
+        let col = null;
+        let label = null;
+
+        if (h >= 0 && h < 8) {{
+          sess = 'ASIA';
+          col = 'rgba(156, 39, 176, 0.04)';
+          label = 'Asia';
+        }} else if (h >= 7 && h < 10) {{
+          sess = 'LONDON';
+          col = 'rgba(33, 150, 243, 0.06)';
+          label = 'London';
+        }} else if (h >= 12 && h < 15) {{
+          sess = 'NY';
+          col = 'rgba(255, 152, 0, 0.06)';
+          label = 'NY Open';
+        }} else if (h >= 15 && h < 17) {{
+          sess = 'LDN_CLOSE';
+          col = 'rgba(0, 150, 136, 0.05)';
+          label = 'Ldn Close';
+        }}
+
+        if (sess !== curSession) {{
+          if (curSession && sStart !== null && sEnd !== null) {{
+            const x1 = safeTimeToCoordinate(sStart);
+            const x2 = safeTimeToCoordinate(sEnd);
+            if (x1 !== null && x2 !== null && x2 >= x1 - 5) {{
+              const w = Math.max(x2 - x1, 12);
+              ctx.save();
+              ctx.fillStyle = curCol;
+              ctx.fillRect(x1, 0, w, container.clientHeight);
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+              ctx.font = 'bold 9px sans-serif';
+              ctx.fillText(curLabel, x1 + 4, 14);
+              ctx.restore();
+            }}
+          }}
+          curSession = sess;
+          curCol = col;
+          curLabel = label;
+          sStart = c.time;
+          sEnd = c.time;
+        }} else {{
+          sEnd = c.time;
+        }}
+      }}
+      if (curSession && sStart !== null && sEnd !== null) {{
+        const x1 = safeTimeToCoordinate(sStart);
+        const x2 = safeTimeToCoordinate(sEnd);
+        if (x1 !== null && x2 !== null && x2 >= x1 - 5) {{
+          const w = Math.max(x2 - x1, 12);
+          ctx.save();
+          ctx.fillStyle = curCol;
+          ctx.fillRect(x1, 0, w, container.clientHeight);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+          ctx.font = 'bold 9px sans-serif';
+          ctx.fillText(curLabel, x1 + 4, 14);
+          ctx.restore();
+        }}
+      }}
+
+      // Key Reference Levels (Daily Open, PDH, PDL)
+      if (nCandles > 10) {{
+        const lastCandle = currentCandles[nCandles - 1];
+        const lastDate = new Date(lastCandle.time * 1000);
+        const lastDay = lastDate.getUTCDate();
+        const lastMonth = lastDate.getUTCMonth();
+        const lastYear = lastDate.getUTCFullYear();
+
+        let todayOpen = null;
+        let prevDayHigh = -Infinity;
+        let prevDayLow = Infinity;
+        let prevDayCandles = 0;
+        let prevDayNum = null;
+
+        for (let i = nCandles - 1; i >= 0; i--) {{
+          const c = currentCandles[i];
+          const cd = new Date(c.time * 1000);
+          const cDay = cd.getUTCDate();
+          const isToday = (cDay === lastDay && cd.getUTCMonth() === lastMonth && cd.getUTCFullYear() === lastYear);
+
+          if (isToday) {{
+            todayOpen = c.open;
+          }} else {{
+            if (prevDayNum === null) {{
+              prevDayNum = cDay;
+            }}
+            if (cDay === prevDayNum) {{
+              prevDayHigh = Math.max(prevDayHigh, c.high);
+              prevDayLow = Math.min(prevDayLow, c.low);
+              prevDayCandles++;
+            }} else if (prevDayCandles > 0) {{
+              break;
+            }}
+          }}
+        }}
+
+        const levelsToDraw = [];
+        if (todayOpen !== null) {{
+          levelsToDraw.push({{ price: todayOpen, label: 'DO', color: '#00bcd4' }});
+        }}
+        if (prevDayCandles > 0 && prevDayHigh > -Infinity) {{
+          levelsToDraw.push({{ price: prevDayHigh, label: 'PDH', color: '#ff9800' }});
+          levelsToDraw.push({{ price: prevDayLow, label: 'PDL', color: '#ff9800' }});
+        }}
+
+        levelsToDraw.forEach(lvl => {{
+          const y = safePriceToCoordinate(lvl.price);
+          if (y !== null && y >= 0 && y <= container.clientHeight) {{
+            ctx.save();
+            ctx.beginPath();
+            ctx.strokeStyle = lvl.color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 4]);
+            ctx.moveTo(0, y);
+            ctx.lineTo(container.clientWidth - 80, y);
+            ctx.stroke();
+
+            // Right tag
+            ctx.fillStyle = lvl.color;
+            ctx.font = 'bold 9px sans-serif';
+            ctx.fillText(lvl.label + ' ' + lvl.price.toFixed(2), container.clientWidth - 75, y + 3);
+            ctx.restore();
+          }}
+        }});
+      }}
+    }}
 
     // 0. Persistent Crosshair Guidelines when Drawing Tool is Active
     if (activeTool !== 'CURSOR' && liveMousePoint) {{
@@ -1663,6 +1807,56 @@ def get_chart_html(theme: str = "dark") -> str:
             entry: entryP,
             sl: slP,
             tp: tpP,
+            drawing_id: targetD.id,
+          }}));
+        }}
+      }});
+    }}
+
+    const limitBtn = document.getElementById('prop-btn-exec-limit');
+    if (limitBtn) {{
+      limitBtn.addEventListener('click', (e) => {{
+        e.stopPropagation();
+        if (!selectedDrawingId) return;
+        const targetD = drawings.find(x => x.id === selectedDrawingId);
+        if (!targetD || (targetD.type !== 'LONG_POSITION' && targetD.type !== 'SHORT_POSITION')) return;
+        if (targetD.points.length < 3) return;
+
+        const isLong = (targetD.type === 'LONG_POSITION');
+        const entryP = targetD.points[0].price;
+        const slP = targetD.points[1].price;
+        const tpP = targetD.points[2].price;
+        let latestPrice = entryP;
+        if (currentCandles && currentCandles.length > 0) {{
+          latestPrice = currentCandles[currentCandles.length - 1].close;
+        }}
+        const orderType = isLong ? (entryP < latestPrice ? 'BUY_LIMIT' : 'BUY_STOP') : (entryP > latestPrice ? 'SELL_LIMIT' : 'SELL_STOP');
+
+        if (window.qtBridge && window.qtBridge.onExecuteTradeFromDrawing) {{
+          window.qtBridge.onExecuteTradeFromDrawing(JSON.stringify({{
+            direction: isLong ? 'BUY' : 'SELL',
+            order_type: orderType,
+            entry: entryP,
+            sl: slP,
+            tp: tpP,
+            drawing_id: targetD.id,
+          }}));
+        }}
+      }});
+    }}
+
+    const beBtn = document.getElementById('prop-btn-move-be');
+    if (beBtn) {{
+      beBtn.addEventListener('click', (e) => {{
+        e.stopPropagation();
+        if (!selectedDrawingId) return;
+        const targetD = drawings.find(x => x.id === selectedDrawingId);
+        if (!targetD) return;
+
+        if (window.qtBridge && window.qtBridge.onExecuteTradeFromDrawing) {{
+          window.qtBridge.onExecuteTradeFromDrawing(JSON.stringify({{
+            action: 'MOVE_BE',
+            order_type: 'MOVE_BE',
             drawing_id: targetD.id,
           }}));
         }}

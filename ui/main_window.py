@@ -329,6 +329,8 @@ class MainWindow(QMainWindow):
 
         # Positions & History Panels
         self.positions_panel.close_position_requested.connect(self._close_single_position)
+        self.positions_panel.partial_close_requested.connect(self._partial_close_position)
+        self.positions_panel.move_to_be_requested.connect(self._move_position_to_be)
         self.positions_panel.cancel_pending_order_requested.connect(self._cancel_pending_order)
         self.history_panel.export_requested.connect(self.account_engine.export_trade_history_csv)
 
@@ -704,6 +706,26 @@ class MainWindow(QMainWindow):
         self.account_engine.close_position(pos_id, current_price=price, timestamp=ts, dt=dt)
         self._update_all_views()
 
+    def _partial_close_position(self, pos_id: str, percentage: float = 0.5) -> None:
+        candle = self.replay_controller.get_current_candle()
+        if not candle:
+            return
+        price = float(candle["close"])
+        ts = int(candle["timestamp"])
+        dt = candle.get("datetime")
+        self.account_engine.close_partial_position(
+            position_id=pos_id,
+            percentage=percentage,
+            current_price=price,
+            timestamp=ts,
+            dt=dt,
+        )
+        self._update_all_views()
+
+    def _move_position_to_be(self, pos_id: str) -> None:
+        self.account_engine.move_sl_to_break_even(pos_id)
+        self._update_all_views()
+
     def _cancel_pending_order(self, order_id: str) -> None:
         self.account_engine.cancel_pending_order(order_id)
         self._update_all_views()
@@ -732,7 +754,7 @@ class MainWindow(QMainWindow):
                         df_htf_vis = df_htf[df_htf["timestamp"] <= curr_ts]
                     else:
                         df_htf_vis = df_htf
-                    self.chart_manager_htf.load_dataset(df_htf_vis.to_dict(orient="records"))
+                    self.chart_manager_htf.load_dataset(df_htf_vis)
                 except Exception as e:
                     logger.error(f"Error loading HTF data for dual view: {e}")
         else:
@@ -815,8 +837,19 @@ class MainWindow(QMainWindow):
 
     def _handle_execute_trade_from_drawing(self, data: dict) -> None:
         try:
-            direction_str = data.get("direction", "BUY")
             order_type_str = data.get("order_type", "")
+            action_str = data.get("action", "")
+
+            if order_type_str == "MOVE_BE" or action_str == "MOVE_BE":
+                # Move all active positions on current symbol to break-even
+                sym = self.replay_controller.state.symbol
+                for pid, pos in list(self.account_engine.positions.items()):
+                    if pos.symbol == sym:
+                        self.account_engine.move_sl_to_break_even(pid)
+                self._update_all_views()
+                return
+
+            direction_str = data.get("direction", "BUY")
             entry = float(data.get("entry", 0.0))
             sl = float(data.get("sl", 0.0))
             tp = float(data.get("tp", 0.0))

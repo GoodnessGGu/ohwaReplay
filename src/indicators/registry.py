@@ -8,6 +8,8 @@ from src.indicators.all_indicators import (
     ATRIndicator,
     BollingerBandsIndicator,
     SmartTrailIndicator,
+    FVGIndicator,
+    MarketStructureIndicator,
 )
 
 
@@ -22,6 +24,8 @@ class IndicatorRegistry:
         "ATR": ATRIndicator,
         "BollingerBands": BollingerBandsIndicator,
         "SmartTrail": SmartTrailIndicator,
+        "FVG": FVGIndicator,
+        "MarketStructure": MarketStructureIndicator,
     }
 
     @classmethod
