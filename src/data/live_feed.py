@@ -31,7 +31,7 @@ class LiveDataLoader:
             return None
 
     @staticmethod
-    def _fetch_binance_klines(symbol: str, timeframe: str, limit: int = 500) -> Optional[pd.DataFrame]:
+    def _fetch_binance_klines(symbol: str, timeframe: str, limit: int = 1000) -> Optional[pd.DataFrame]:
         binance_pair = "BTCUSDT" if "BTC" in symbol else ("ETHUSDT" if "ETH" in symbol else "SOLUSDT")
         tf_map = {
             "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m",
@@ -64,10 +64,10 @@ class LiveDataLoader:
     def _fetch_yahoo_klines(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
         yahoo_sym = "GC=F" if "XAU" in symbol or "GOLD" in symbol else f"{symbol}=X"
         tf_map = {
-            "1m": ("1m", "1d"),
-            "3m": ("5m", "5d"),
-            "5m": ("5m", "5d"),
-            "15m": ("15m", "5d"),
+            "1m": ("1m", "7d"),
+            "3m": ("5m", "7d"),
+            "5m": ("5m", "7d"),
+            "15m": ("15m", "7d"),
             "30m": ("30m", "1mo"),
             "1h": ("60m", "1mo"),
             "4h": ("60m", "3mo"),
