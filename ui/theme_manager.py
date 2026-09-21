@@ -199,7 +199,7 @@ QPushButton#buyButton {{
 }}
 
 QPushButton#buyButton:hover {{
-    filter: brightness(115%);
+    background-color: #2bbbad;
 }}
 
 QPushButton#sellButton {{
@@ -212,7 +212,7 @@ QPushButton#sellButton {{
 }}
 
 QPushButton#sellButton:hover {{
-    filter: brightness(115%);
+    background-color: #f44336;
 }}
 
 QPushButton#closeButton {{

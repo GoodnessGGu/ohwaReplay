@@ -740,10 +740,10 @@ class MainWindow(QMainWindow):
         self._load_asset_data(target_tab.symbol, target_tab.timeframe, preserve_timestamp=None)
 
         # 7. Restore replay position
-        if target_tab.replay_index >= 0 and target_tab.replay_index < len(self.replay_controller._df):
+        if target_tab.replay_index is not None and 0 <= target_tab.replay_index < len(self.replay_controller._df):
             self.replay_controller.jump_to_index(target_tab.replay_index)
         else:
-            latest_idx = len(self.replay_controller._df) - 1
+            latest_idx = max(0, len(self.replay_controller._df) - 1)
             self.replay_controller.jump_to_index(latest_idx)
 
         vis_candles = self.replay_controller.get_visible_candles()
@@ -776,7 +776,7 @@ class MainWindow(QMainWindow):
                 break
 
         new_idx = self.chart_tab_bar.add_tab(new_sym, "15m", mode="replay")
-        if new_idx >= 0:
+        if new_idx is not None and new_idx >= 0:
             self._on_tab_selected(new_idx)
 
     def _on_tab_closed(self, index: int) -> None:
@@ -799,7 +799,11 @@ class MainWindow(QMainWindow):
                 self.chart_manager.active_indicators = [x.copy() for x in target_tab.indicators]
                 self.chart_widget.set_symbol(target_tab.symbol)
                 self._load_asset_data(target_tab.symbol, target_tab.timeframe)
-                self.replay_controller.jump_to_index(target_tab.replay_index)
+                if target_tab.replay_index is not None and 0 <= target_tab.replay_index < len(self.replay_controller._df):
+                    self.replay_controller.jump_to_index(target_tab.replay_index)
+                else:
+                    latest_idx = max(0, len(self.replay_controller._df) - 1)
+                    self.replay_controller.jump_to_index(latest_idx)
                 vis_candles = self.replay_controller.get_visible_candles()
                 self.chart_manager.load_dataset(vis_candles)
                 self.chart_manager.sync_all_indicators(vis_candles)
@@ -808,6 +812,7 @@ class MainWindow(QMainWindow):
             if index < self.current_tab_index:
                 self.current_tab_index -= 1
             self.chart_tab_bar.remove_tab(index)
+
 
     def _close_current_tab(self) -> None:
         """Keyboard shortcut (Ctrl+W) to close the active tab."""
