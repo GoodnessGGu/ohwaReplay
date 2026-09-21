@@ -22,7 +22,7 @@ class ChartManager:
         self.volume_visible: bool = True
         self.current_df: Optional[pd.DataFrame] = None
 
-    def load_dataset(self, df_visible: pd.DataFrame, max_initial_candles: int = 5000) -> None:
+    def load_dataset(self, df_visible: pd.DataFrame, max_initial_candles: int = 5000, visible_range: Optional[Dict[str, Any]] = None) -> None:
         """
         Transforms and pushes visible historical candles to chart widget.
         Uses ultra-fast vectorized numpy transformations (< 10ms for 5,000+ bars).
@@ -65,9 +65,10 @@ class ChartManager:
                 for i in range(n)
             ]
 
-        self.widget.set_chart_data(candle_data, volume_data)
+        self.widget.set_chart_data(candle_data, volume_data, visible_range=visible_range)
         self.widget.set_volume_visible(self.volume_visible)
         self.sync_all_indicators(df_visible)
+
 
     def set_volume_visible(self, visible: bool) -> None:
         """Toggles the Volume Histogram indicator visibility."""

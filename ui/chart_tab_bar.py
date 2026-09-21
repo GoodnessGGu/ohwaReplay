@@ -21,6 +21,8 @@ class ChartTabInfo:
         self.replay_index: Optional[int] = None
         self.drawings: List[Dict[str, Any]] = []
         self.indicators: List[Dict[str, Any]] = []
+        self.visible_range: Optional[Dict[str, Any]] = None
+
 
     @property
     def display_text(self) -> str:

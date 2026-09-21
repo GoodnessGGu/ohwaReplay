@@ -276,6 +276,8 @@ def get_chart_html(theme: str = "dark") -> str:
         borderColor: '{grid_color}',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 8,
+        barSpacing: 9,
       }},
     }});
 
@@ -304,7 +306,15 @@ def get_chart_html(theme: str = "dark") -> str:
 
     // Continuous redraw listeners
     chart.timeScale().subscribeVisibleTimeRangeChange(() => scheduleRender());
-    chart.timeScale().subscribeVisibleLogicalRangeChange(() => scheduleRender());
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {{
+      if (range) {{
+        lastSavedLogicalRange = range;
+        if (window.qtBridge && window.qtBridge.onVisibleRangeChanged) {{
+          window.qtBridge.onVisibleRangeChanged(JSON.stringify(range));
+        }}
+      }}
+      scheduleRender();
+    }});
     container.addEventListener('mousemove', () => scheduleRender(), {{ passive: true }});
     container.addEventListener('wheel', () => scheduleRender(), {{ passive: true }});
 
@@ -312,6 +322,8 @@ def get_chart_html(theme: str = "dark") -> str:
     setupPropertyToolbarEvents();
     resizeCanvas();
   }}
+
+  let lastSavedLogicalRange = null;
 
   // Bridge functions
   function setSymbol(symbol) {{
@@ -352,15 +364,33 @@ def get_chart_html(theme: str = "dark") -> str:
     scheduleRender();
   }}
 
-  function setChartData(candleData, volumeData) {{
+  function setChartData(candleData, volumeData, savedRange) {{
     currentCandles = candleData ? candleData.slice() : [];
     candleSeries.setData(candleData || []);
     if (volumeData && volumeData.length > 0) {{
       volumeSeries.setData(volumeData);
     }}
-    chart.timeScale().fitContent();
+
+    const n = currentCandles.length;
+    if (n > 0) {{
+      if (savedRange && savedRange.from !== undefined && savedRange.to !== undefined) {{
+        try {{
+          chart.timeScale().setVisibleLogicalRange(savedRange);
+        }} catch (e) {{
+          const span = 110;
+          chart.timeScale().setVisibleLogicalRange({{ from: Math.max(0, n - span), to: n + 10 }});
+        }}
+      }} else if (lastSavedLogicalRange && lastSavedLogicalRange.from !== undefined && lastSavedLogicalRange.to !== undefined) {{
+        const span = Math.max(25, Math.min(600, Math.round(lastSavedLogicalRange.to - lastSavedLogicalRange.from)));
+        chart.timeScale().setVisibleLogicalRange({{ from: Math.max(0, n - span), to: n + Math.round(span * 0.08) }});
+      }} else {{
+        const span = 110;
+        chart.timeScale().setVisibleLogicalRange({{ from: Math.max(0, n - span), to: n + 10 }});
+      }}
+    }}
     scheduleRender();
   }}
+
 
   function updateCandle(candle, volume) {{
     if (!candle) return;

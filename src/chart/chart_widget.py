@@ -20,6 +20,7 @@ class ChartBridge(QObject):
     position_modified = pyqtSignal(str, float, float)
     trade_executed_from_drawing = pyqtSignal(str)
     apply_to_order_panel = pyqtSignal(str)
+    visible_range_changed = pyqtSignal(str)
 
     @pyqtSlot(str)
     def onDrawingCreated(self, drawing_json: str):
@@ -49,6 +50,10 @@ class ChartBridge(QObject):
     def onApplyToOrderPanel(self, trade_json: str):
         self.apply_to_order_panel.emit(trade_json)
 
+    @pyqtSlot(str)
+    def onVisibleRangeChanged(self, range_json: str):
+        self.visible_range_changed.emit(range_json)
+
 
 class ChartWidget(QWebEngineView):
     """
@@ -63,12 +68,14 @@ class ChartWidget(QWebEngineView):
     position_modified_signal = pyqtSignal(str, float, float)
     trade_executed_from_drawing_signal = pyqtSignal(dict)
     apply_to_order_panel_signal = pyqtSignal(dict)
+    visible_range_changed_signal = pyqtSignal(dict)
 
     def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
         self.theme = theme
         self._is_loaded = False
         self._pending_data: Optional[Dict[str, Any]] = None
+        self.current_visible_range: Optional[Dict[str, Any]] = None
 
         self.bridge = ChartBridge()
         self.channel = QWebChannel(self.page())
@@ -82,6 +89,7 @@ class ChartWidget(QWebEngineView):
         self.bridge.position_modified.connect(self.position_modified_signal.emit)
         self.bridge.trade_executed_from_drawing.connect(self._on_js_trade_executed)
         self.bridge.apply_to_order_panel.connect(self._on_js_apply_to_panel)
+        self.bridge.visible_range_changed.connect(self._on_js_visible_range_changed)
 
         self.loadFinished.connect(self._on_load_finished)
         self.init_chart_view()
@@ -95,11 +103,22 @@ class ChartWidget(QWebEngineView):
         if ok:
             logger.info("Chart WebEngine view loaded successfully.")
             if self._pending_data:
-                self.set_chart_data(self._pending_data["candles"], self._pending_data["volume"])
+                self.set_chart_data(
+                    self._pending_data["candles"],
+                    self._pending_data.get("volume"),
+                    self._pending_data.get("visible_range")
+                )
                 self._pending_data = None
             self.chart_ready.emit()
         else:
             logger.error("Failed to load Chart WebEngine view.")
+
+    def _on_js_visible_range_changed(self, range_json: str) -> None:
+        try:
+            self.current_visible_range = json.loads(range_json)
+            self.visible_range_changed_signal.emit(self.current_visible_range)
+        except Exception:
+            pass
 
     def _on_js_drawing_created(self, drawing_json: str) -> None:
         try:
@@ -135,16 +154,18 @@ class ChartWidget(QWebEngineView):
             return
         self.page().runJavaScript(f"setSymbol('{symbol}');")
 
-    def set_chart_data(self, candle_data: List[Dict[str, Any]], volume_data: Optional[List[Dict[str, Any]]] = None) -> None:
+    def set_chart_data(self, candle_data: List[Dict[str, Any]], volume_data: Optional[List[Dict[str, Any]]] = None, visible_range: Optional[Dict[str, Any]] = None) -> None:
         """Sets full historical candle data up to current replay position."""
         if not self._is_loaded:
-            self._pending_data = {"candles": candle_data, "volume": volume_data or []}
+            self._pending_data = {"candles": candle_data, "volume": volume_data or [], "visible_range": visible_range}
             return
 
         c_json = json.dumps(candle_data)
         v_json = json.dumps(volume_data or [])
-        js_code = f"setChartData({c_json}, {v_json});"
+        r_json = json.dumps(visible_range) if visible_range else "null"
+        js_code = f"setChartData({c_json}, {v_json}, {r_json});"
         self.page().runJavaScript(js_code)
+
 
     def update_candle(self, candle: Dict[str, Any], volume: Optional[Dict[str, Any]] = None) -> None:
         """Appends or updates a single candle incrementally during replay."""

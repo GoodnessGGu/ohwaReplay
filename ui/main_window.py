@@ -708,6 +708,7 @@ class MainWindow(QMainWindow):
             tab_info.replay_index = self.replay_controller.current_index
             tab_info.drawings = self.drawing_store.serialize()
             tab_info.indicators = [x.copy() for x in self.chart_manager.active_indicators]
+            tab_info.visible_range = self.chart_widget.current_visible_range
 
     def _on_tab_selected(self, index: int) -> None:
         """Switches active chart tab, restoring its symbol, timeframe, drawings, and replay state."""
@@ -747,7 +748,7 @@ class MainWindow(QMainWindow):
             self.replay_controller.jump_to_index(latest_idx)
 
         vis_candles = self.replay_controller.get_visible_candles()
-        self.chart_manager.load_dataset(vis_candles)
+        self.chart_manager.load_dataset(vis_candles, visible_range=target_tab.visible_range)
         self.chart_manager.sync_all_indicators(vis_candles)
 
         # 8. Set live mode vs replay mode
@@ -805,13 +806,14 @@ class MainWindow(QMainWindow):
                     latest_idx = max(0, len(self.replay_controller._df) - 1)
                     self.replay_controller.jump_to_index(latest_idx)
                 vis_candles = self.replay_controller.get_visible_candles()
-                self.chart_manager.load_dataset(vis_candles)
+                self.chart_manager.load_dataset(vis_candles, visible_range=target_tab.visible_range)
                 self.chart_manager.sync_all_indicators(vis_candles)
                 self._update_all_views()
         else:
             if index < self.current_tab_index:
                 self.current_tab_index -= 1
             self.chart_tab_bar.remove_tab(index)
+
 
 
     def _close_current_tab(self) -> None:
