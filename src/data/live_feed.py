@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
+from src.data.cloud_feed import CloudQuoteFetcher
 from src.data.data_loader import DataLoader
 from src.data.mt5_connector import mt5_connector
 from src.utils.logger import logger
@@ -15,40 +16,44 @@ from src.utils.logger import logger
 
 class LiveDataLoader:
     """
-    Fetches real-time up-to-date historical candles from MetaTrader 5 (FOREX.com / broker) or public APIs
-    (Binance for Crypto & PAXG Gold, Yahoo Finance for FX) to fill the gap between offline datasets and live market price.
+    Fetches real-time up-to-date historical candles from MetaTrader 5 (FOREX.com / broker) or Cloud financial feeds
+    (Yahoo Finance Cloud / multi-market spot feeds) to fill the gap between offline datasets and live market price.
     """
 
     @staticmethod
-    def fetch_latest_candles(symbol: str, timeframe: str = "5m", limit: int = 1000) -> Optional[pd.DataFrame]:
-        # 1. Primary: If MetaTrader 5 Bridge is active or running, fetch direct from broker
-        if not mt5_connector.is_connected:
-            mt5_connector.auto_connect()
+    def fetch_latest_candles(symbol: str, timeframe: str = "5m", limit: int = 1000, prefer_cloud: bool = False) -> Optional[pd.DataFrame]:
+        # 1. Primary MT5: If not prefer_cloud and MetaTrader 5 Bridge is active, fetch from broker
+        if not prefer_cloud:
+            if not mt5_connector.is_connected:
+                mt5_connector.auto_connect()
 
-        if mt5_connector.is_connected:
-            try:
-                mt5_df = mt5_connector.fetch_candles(symbol, timeframe=timeframe, count=limit)
-                if mt5_df is not None and not mt5_df.empty:
-                    logger.info(f"Fetched {len(mt5_df)} candles for {symbol} directly from MT5 Bridge.")
-                    return mt5_df
-            except Exception as e:
-                logger.warning(f"MT5 candle fetch note for {symbol}: {e}. Falling back to public feed.")
+            if mt5_connector.is_connected:
+                try:
+                    mt5_df = mt5_connector.fetch_candles(symbol, timeframe=timeframe, count=limit)
+                    if mt5_df is not None and not mt5_df.empty:
+                        logger.info(f"Fetched {len(mt5_df)} candles for {symbol} directly from MT5 Bridge.")
+                        return mt5_df
+                except Exception as e:
+                    logger.warning(f"MT5 candle fetch note for {symbol}: {e}. Falling back to 24/7 Cloud feed.")
 
-        symbol_upper = symbol.upper()
+        # 2. 24/7 Cloud Financial Stream
+        symbol_upper = symbol.upper().replace("/", "").replace("-", "")
         try:
-            if "BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper:
-                return LiveDataLoader._fetch_binance_klines(symbol_upper, timeframe, limit)
-            elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
-                # Binance PAXGUSDT provides real-time 24/7 1:1 physical gold spot bars
-                paxg_df = LiveDataLoader._fetch_binance_klines("PAXGUSDT", timeframe, limit)
-                if paxg_df is not None and not paxg_df.empty:
-                    return paxg_df
-                return LiveDataLoader._fetch_yahoo_klines(symbol_upper, timeframe)
-            else:
-                return LiveDataLoader._fetch_yahoo_klines(symbol_upper, timeframe)
+            cloud_df = LiveDataLoader._fetch_yahoo_klines(symbol_upper, timeframe)
+            if cloud_df is not None and not cloud_df.empty:
+                logger.info(f"Fetched {len(cloud_df)} candles for {symbol} directly from 24/7 Cloud Feed.")
+                return cloud_df
         except Exception as e:
-            logger.warning(f"Failed to fetch live historical candles for {symbol}: {e}")
-            return None
+            logger.warning(f"Failed to fetch live cloud candles for {symbol}: {e}")
+
+        # 3. Secondary Binance fallback for crypto if needed
+        if "BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper:
+            try:
+                return LiveDataLoader._fetch_binance_klines(symbol_upper, timeframe, limit)
+            except Exception:
+                pass
+
+        return None
 
     @staticmethod
     def _fetch_binance_klines(symbol: str, timeframe: str, limit: int = 1000) -> Optional[pd.DataFrame]:
@@ -89,7 +94,8 @@ class LiveDataLoader:
 
     @staticmethod
     def _fetch_yahoo_klines(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
-        yahoo_sym = "GC=F" if "XAU" in symbol or "GOLD" in symbol else f"{symbol}=X"
+        clean_sym = symbol.upper().replace("/", "").replace("-", "")
+        yahoo_sym = CloudQuoteFetcher.YAHOO_MAP.get(clean_sym, f"{clean_sym}=X")
         tf_map = {
             "1m": ("1m", "7d"),
             "3m": ("5m", "7d"),
@@ -266,11 +272,8 @@ class LiveFeedWorker(QThread):
         self.wait(1500)
 
     def _refresh_anchor_price(self) -> Optional[float]:
-        """Fetches the latest real-world anchor quote from MT5 or public APIs."""
-        # 1. Primary: MT5 broker tick
-        if not mt5_connector.is_connected:
-            mt5_connector.auto_connect()
-
+        """Fetches the latest real-world anchor quote from MT5 or 24/7 Cloud financial feed."""
+        # 1. Primary MT5: MT5 broker tick if connected
         if mt5_connector.is_connected:
             try:
                 res = mt5_connector.get_live_ticker(self.symbol)
@@ -284,47 +287,15 @@ class LiveFeedWorker(QThread):
             except Exception as e:
                 logger.debug(f"MT5 live ticker note: {e}")
 
-        # Rate limit public API network calls to once per 2 seconds
-        now = time.time()
-        if self._anchor_price is not None and (now - self._last_anchor_fetch_time) < 2.0:
-            return self._anchor_price
-
-        # 2. Public API Feeds
+        # 2. 24/7 Cloud Financial Stream
         try:
-            sym = self.symbol.upper()
-            if "BTC" in sym or "ETH" in sym or "SOL" in sym:
-                pair = "BTCUSDT" if "BTC" in sym else ("ETHUSDT" if "ETH" in sym else "SOLUSDT")
-                url = f"https://api.binance.com/api/v3/ticker/price?symbol={pair}"
-                req = urllib.request.Request(url, headers={"User-Agent": "TradingReplayLab/1.0"})
-                with urllib.request.urlopen(req, timeout=2.5) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    self._anchor_price = float(data.get("price", 0.0))
-                    self._last_anchor_fetch_time = now
-                    return self._anchor_price
-
-            elif "XAU" in sym or "GOLD" in sym:
-                # Real-time Binance Paxos Gold Spot
-                url = "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
-                req = urllib.request.Request(url, headers={"User-Agent": "TradingReplayLab/1.0"})
-                with urllib.request.urlopen(req, timeout=2.5) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    self._anchor_price = float(data.get("price", 0.0))
-                    self._last_anchor_fetch_time = now
-                    return self._anchor_price
-
-            else:
-                # Forex pairs via Yahoo Finance
-                yahoo_sym = f"{sym}=X"
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?interval=1m&range=1d"
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=2.5) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    meta = data["chart"]["result"][0]["meta"]
-                    self._anchor_price = float(meta.get("regularMarketPrice", 0.0))
-                    self._last_anchor_fetch_time = now
-                    return self._anchor_price
+            p = CloudQuoteFetcher.get_spot_quote(self.symbol)
+            if p > 0:
+                self._anchor_price = p
+                self._last_anchor_fetch_time = time.time()
+                return self._anchor_price
         except Exception as e:
-            logger.debug(f"Public anchor fetch note for {self.symbol}: {e}")
+            logger.debug(f"Cloud spot anchor fetch note for {self.symbol}: {e}")
 
         # Fallback default reasonable anchors if network offline
         if self._anchor_price is None:

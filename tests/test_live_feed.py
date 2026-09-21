@@ -53,3 +53,19 @@ def test_fill_gap_to_now():
     filled = LiveDataLoader.fill_gap_to_now(df, timeframe="5m", symbol="XAUUSD")
     assert len(filled) >= len(df)
     assert filled.iloc[-1]["timestamp"] >= past_ts
+
+
+def test_cloud_quote_fetcher_spot():
+    from src.data.cloud_feed import CloudQuoteFetcher
+    # Test default fallback and symbol mapping
+    assert "XAUUSD" in CloudQuoteFetcher.YAHOO_MAP
+    assert "BTCUSD" in CloudQuoteFetcher.YAHOO_MAP
+    quote = CloudQuoteFetcher.get_spot_quote("XAUUSD")
+    assert quote > 0
+
+
+def test_cloud_live_feed_anchor():
+    worker = LiveFeedWorker(symbol="EURUSD", timeframe="5m")
+    anchor = worker._refresh_anchor_price()
+    assert anchor is not None
+    assert anchor > 0

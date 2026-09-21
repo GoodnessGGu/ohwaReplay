@@ -103,6 +103,12 @@ class MainToolBar(QToolBar):
         self.btn_mt5.clicked.connect(self.mt5_requested.emit)
         self.addWidget(self.btn_mt5)
 
+        # Feed Status Badge (Cloud vs MT5)
+        self.lbl_feed_status = QLabel("☁ 24/7 Cloud")
+        self.lbl_feed_status.setStyleSheet("font-size: 11px; color: #26a69a; font-weight: bold; padding: 3px 6px; background-color: #132724; border-radius: 3px; border: 1px solid #26a69a;")
+        self.lbl_feed_status.setToolTip("Live Streaming Feed Status (Zero MT5 requirement)")
+        self.addWidget(self.lbl_feed_status)
+
         self.addSeparator()
 
         # Layout Toggle (Single vs Dual Split)
@@ -224,4 +230,13 @@ class MainToolBar(QToolBar):
             self.btn_mode.setText("🔁 Replay Mode")
             self.btn_mode.setStyleSheet("font-weight: bold; padding: 4px 10px; background-color: #2a2e39; color: #2962ff; border: 1px solid #2962ff; border-radius: 4px;")
         self.btn_mode.blockSignals(False)
+
+    def set_feed_status(self, text: str, is_active: bool = True) -> None:
+        if hasattr(self, "lbl_feed_status"):
+            self.lbl_feed_status.setText(text)
+            color = "#26a69a" if is_active else "#848e9c"
+            bg = "#132724" if is_active else "#1e222d"
+            self.lbl_feed_status.setStyleSheet(
+                f"font-size: 11px; color: {color}; font-weight: bold; padding: 3px 6px; background-color: {bg}; border-radius: 3px; border: 1px solid {color};"
+            )
 

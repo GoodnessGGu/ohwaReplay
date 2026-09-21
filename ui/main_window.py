@@ -603,29 +603,31 @@ class MainWindow(QMainWindow):
         if hasattr(self, "chart_widget_htf"):
             self.chart_widget_htf.set_symbol(symbol)
 
-        mode_str = "live" if (self.live_worker and self.live_worker.isRunning()) else "replay"
+        is_live = bool(self.live_worker and self.live_worker.isRunning())
+        mode_str = "live" if is_live else "replay"
         self.chart_tab_bar.update_tab_label(self.current_tab_index, symbol, tf, mode_str)
 
         # 1. Load dataset for newly selected asset
-        if mt5_connector.is_connected:
+        loaded = False
+        if is_live:
             live_df = LiveDataLoader.fetch_latest_candles(symbol, timeframe=tf, limit=2000)
             if live_df is not None and not live_df.empty:
-                if self.live_worker and self.live_worker.isRunning():
-                    live_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=symbol)
-                self.replay_controller.load_data(live_df, symbol=symbol, timeframe=tf, start_index=len(live_df) - 1)
-            else:
-                self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=None)
-        else:
+                filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=symbol)
+                self.replay_controller.load_data(filled_df, symbol=symbol, timeframe=tf, start_index=len(filled_df) - 1)
+                loaded = True
+
+        if not loaded:
             self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=None)
-            if self.live_worker and self.live_worker.isRunning() and self.replay_controller._df is not None:
+            if is_live and self.replay_controller._df is not None:
                 filled = LiveDataLoader.fill_gap_to_now(self.replay_controller._df, timeframe=tf, symbol=symbol)
                 self.replay_controller.load_data(filled, symbol=symbol, timeframe=tf, start_index=len(filled) - 1)
 
         # 2. If live mode is active, restart live worker
-        if self.live_worker and self.live_worker.isRunning():
+        if is_live:
             self.live_worker.stop()
             self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=200)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
+            self.live_worker.status_changed.connect(self._on_live_status_changed)
             self.live_worker.start()
 
         self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
@@ -633,29 +635,30 @@ class MainWindow(QMainWindow):
 
     def _on_timeframe_changed(self, tf: str) -> None:
         sym = self.replay_controller.state.symbol
-        is_live = (self.live_worker and self.live_worker.isRunning())
+        is_live = bool(self.live_worker and self.live_worker.isRunning())
         mode_str = "live" if is_live else "replay"
         self.chart_tab_bar.update_tab_label(self.current_tab_index, sym, tf, mode_str)
 
-        if mt5_connector.is_connected:
+        if is_live:
             live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
             if live_df is not None and not live_df.empty:
-                if is_live:
-                    live_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
-                self.replay_controller.load_data(live_df, symbol=sym, timeframe=tf, start_index=len(live_df) - 1)
+                filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
+                self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                 self._update_all_views()
-        else:
-            success = self.replay_controller.set_timeframe(tf)
-            if success:
-                if is_live and self.replay_controller._df is not None:
+            else:
+                success = self.replay_controller.set_timeframe(tf)
+                if success and self.replay_controller._df is not None:
                     filled = LiveDataLoader.fill_gap_to_now(self.replay_controller._df, timeframe=tf, symbol=sym)
                     self.replay_controller.load_data(filled, symbol=sym, timeframe=tf, start_index=len(filled) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                 self._update_all_views()
-
-        if self.live_worker and self.live_worker.isRunning():
-            self.live_worker.timeframe = tf
+            if self.live_worker:
+                self.live_worker.timeframe = tf
+        else:
+            self.replay_controller.set_timeframe(tf)
+            self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+            self._update_all_views()
 
     def _on_mode_changed(self, mode: str) -> None:
         """Toggles between historical replay mode and live streaming feed."""
@@ -672,14 +675,13 @@ class MainWindow(QMainWindow):
             if self.live_worker:
                 self.live_worker.stop()
 
-            # Fill the gap: fetch latest candles or fill gap up to the current wall-clock moment
-            if mt5_connector.is_connected:
-                live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
-                if live_df is not None and not live_df.empty:
-                    filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
-                    self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
-                    self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
-                    self._update_all_views()
+            # Fill the gap: fetch latest candles (from MT5 if connected, else 24/7 Cloud)
+            live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
+            if live_df is not None and not live_df.empty:
+                filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
+                self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
+                self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+                self._update_all_views()
             else:
                 curr_df = self.replay_controller._df
                 if curr_df is not None and not curr_df.empty:
@@ -690,6 +692,7 @@ class MainWindow(QMainWindow):
 
             self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=200)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
+            self.live_worker.status_changed.connect(self._on_live_status_changed)
             self.live_worker.start()
             logger.info(f"Switched to LIVE Mode ({sym} - {tf})")
 
@@ -697,8 +700,21 @@ class MainWindow(QMainWindow):
             if self.live_worker:
                 self.live_worker.stop()
                 self.live_worker = None
+            self.toolbar.set_feed_status("☁ 24/7 Cloud", is_active=False)
             self.replay_bar.setEnabled(True)
             logger.info("Switched to REPLAY Mode")
+
+    def _on_live_status_changed(self, active: bool, msg: str) -> None:
+        """Updates UI status indicators when live feed state transitions."""
+        if active:
+            if "MetaTrader 5" in msg:
+                self.toolbar.set_feed_status("🔌 MT5 Live", is_active=True)
+            else:
+                self.toolbar.set_feed_status("☁ Cloud Live", is_active=True)
+            self.statusBar().showMessage(f"⚡ {msg}", 5000)
+        else:
+            self.toolbar.set_feed_status("☁ 24/7 Cloud", is_active=False)
+            self.statusBar().showMessage("Live market feed stopped", 3000)
 
     def _open_symbol_search_dialog(self) -> None:
         """Opens TradingView-style Search & Filter Dialog for selecting assets."""
