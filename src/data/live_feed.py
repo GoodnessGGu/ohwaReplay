@@ -162,29 +162,45 @@ class LiveFeedWorker(QThread):
 
         while self._running:
             try:
-                # If MT5 is connected, sync directly from official broker forming candle
+                # 1. Check MT5 Bridge live quote & forming bar
                 if mt5_connector.is_connected:
+                    tick_res = mt5_connector.get_live_ticker(self.symbol)
+                    price = None
+                    vol = 1.0
+                    if tick_res:
+                        bid, ask, last_p, tick_vol = tick_res
+                        price = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else bid)
+                        vol = tick_vol or 1.0
+
                     forming_df = mt5_connector.fetch_candles(self.symbol, self.timeframe, count=1)
                     if forming_df is not None and not forming_df.empty:
                         last_row = forming_df.iloc[-1]
                         bar_start = int(last_row["timestamp"])
-                        curr_p = float(last_row["close"])
+                        c_open = float(last_row["open"])
+                        c_high = float(last_row["high"])
+                        c_low = float(last_row["low"])
+                        c_close = price if (price is not None and price > 0) else float(last_row["close"])
+                        c_high = max(c_high, c_close)
+                        c_low = min(c_low, c_close)
+                        c_vol = float(last_row.get("volume", 1.0))
+
                         self._last_candle_time = bar_start
                         self._current_candle = {
                             "time": bar_start,
-                            "open": float(last_row["open"]),
-                            "high": float(last_row["high"]),
-                            "low": float(last_row["low"]),
-                            "close": curr_p,
-                            "volume": float(last_row.get("volume", 1.0)),
+                            "open": c_open,
+                            "high": c_high,
+                            "low": c_low,
+                            "close": c_close,
+                            "volume": c_vol,
                             "timestamp": bar_start,
                             "datetime": str(last_row.get("datetime", "")),
                         }
-                        self.price_updated.emit(self.symbol, curr_p, bar_start)
+                        self.price_updated.emit(self.symbol, c_close, bar_start)
                         self.candle_received.emit(self._current_candle.copy())
                         time.sleep(self.interval_ms / 1000.0)
                         continue
 
+                # 2. Public Fallback (Crypto Binance 24/7 or Yahoo Finance)
                 price, vol = self._fetch_live_ticker(self.symbol)
                 if price and price > 0:
                     now_ts = int(time.time())
@@ -192,7 +208,6 @@ class LiveFeedWorker(QThread):
                     bar_start = (now_ts // tf_seconds) * tf_seconds
 
                     if self._current_candle is None or bar_start > self._last_candle_time:
-                        # New candle start
                         self._last_candle_time = bar_start
                         self._current_candle = {
                             "time": bar_start,
@@ -205,7 +220,6 @@ class LiveFeedWorker(QThread):
                             "datetime": datetime.utcfromtimestamp(bar_start).isoformat(),
                         }
                     else:
-                        # Update current forming bar
                         self._current_candle["high"] = max(self._current_candle["high"], price)
                         self._current_candle["low"] = min(self._current_candle["low"], price)
                         self._current_candle["close"] = price
@@ -220,6 +234,7 @@ class LiveFeedWorker(QThread):
             time.sleep(self.interval_ms / 1000.0)
 
         self.status_changed.emit(False, "Live feed stopped")
+
 
     def _fetch_live_ticker(self, symbol: str) -> Tuple[float, float]:
         """Fetches live ticker price using MT5 bridge or public REST API."""

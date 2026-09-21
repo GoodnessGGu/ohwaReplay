@@ -618,7 +618,7 @@ class MainWindow(QMainWindow):
         # 2. If live mode is active, restart live worker
         if self.live_worker and self.live_worker.isRunning():
             self.live_worker.stop()
-            self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=1000)
+            self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=350)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
             self.live_worker.start()
 
@@ -677,10 +677,11 @@ class MainWindow(QMainWindow):
                 else:
                     self._go_to_latest_date()
 
-            self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=1000)
+            self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=350)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
             self.live_worker.start()
             logger.info(f"Switched to LIVE Mode ({sym} - {tf})")
+
         else:
             if self.live_worker:
                 self.live_worker.stop()
