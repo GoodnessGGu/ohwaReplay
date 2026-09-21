@@ -347,81 +347,77 @@ class LiveFeedWorker(QThread):
         self.status_changed.emit(True, f"Live Connected ({feed_type})")
         logger.info(f"Live market feed started for {self.symbol} ({feed_type})")
 
+        tf_seconds = self._timeframe_to_seconds(self.timeframe)
+        now_ts = int(time.time())
+        self._last_candle_time = (now_ts // tf_seconds) * tf_seconds
+
+        # Get initial anchor price
+        anchor = self._refresh_anchor_price()
+        current_price = anchor if (anchor and anchor > 0) else (2625.50 if "XAU" in self.symbol else 1.0850)
+
+        # Initialize active forming candle at current wall-clock bar start
+        self._current_candle = {
+            "time": self._last_candle_time,
+            "open": current_price,
+            "high": current_price,
+            "low": current_price,
+            "close": current_price,
+            "volume": float(random.randint(5, 20)),
+            "timestamp": self._last_candle_time,
+            "datetime": datetime.utcfromtimestamp(self._last_candle_time).isoformat(),
+        }
+
         while self._running:
             try:
-                # 1. Primary: Direct MT5 broker stream (Zero lag, exact broker forming candle)
+                # 1. Fetch latest price quote (from MT5 if connected, else public feed)
                 if mt5_connector.is_connected:
-                    forming_df = mt5_connector.fetch_candles(self.symbol, self.timeframe, count=1)
                     tick_res = mt5_connector.get_live_ticker(self.symbol)
-                    if forming_df is not None and not forming_df.empty:
-                        last_row = forming_df.iloc[-1]
-                        bar_time = int(last_row["timestamp"])
-                        c_open = float(last_row["open"])
-                        c_high = float(last_row["high"])
-                        c_low = float(last_row["low"])
-                        c_close = float(last_row["close"])
-                        c_vol = float(last_row.get("volume", 1.0))
+                    if tick_res:
+                        bid, ask, last_p, tick_vol = tick_res
+                        broker_p = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else (bid or ask or current_price))
+                        if broker_p > 0:
+                            current_price = broker_p
+                else:
+                    refreshed = self._refresh_anchor_price()
+                    if refreshed and refreshed > 0:
+                        current_price = refreshed
 
-                        if tick_res:
-                            bid, ask, last_p, tick_vol = tick_res
-                            broker_p = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else (bid or ask or c_close))
-                            if broker_p > 0:
-                                # Apply realistic micro-tick pulse around broker quote for continuous fluid price movement
-                                drift = random.gauss(0, self._pip_size * 0.10)
-                                live_p = round(broker_p + drift, self._decimals)
-                                c_close = live_p
-                                c_high = max(c_high, live_p)
-                                c_low = min(c_low, live_p)
-                                c_vol += float(random.randint(1, 3))
+                # Apply continuous micro-tick Browninian volatility drift around current price
+                drift = random.gauss(0, self._pip_size * 0.12)
+                live_price = round(current_price + drift, self._decimals)
 
-                        self._current_candle = {
-                            "time": bar_time,
-                            "open": c_open,
-                            "high": c_high,
-                            "low": c_low,
-                            "close": c_close,
-                            "volume": c_vol,
-                            "timestamp": bar_time,
-                            "datetime": str(last_row.get("datetime", "")),
-                        }
-                        self.price_updated.emit(self.symbol, c_close, bar_time)
-                        self.candle_received.emit(self._current_candle.copy())
-                        time.sleep(self.interval_ms / 1000.0)
-                        continue
+                # 2. Check bar transition based on wall-clock time
+                now = int(time.time())
+                bar_start = (now // tf_seconds) * tf_seconds
 
-                # 2. Public Fallback Stream (Crypto / Gold / FX)
-                anchor = self._refresh_anchor_price()
-                if anchor and anchor > 0:
-                    drift = random.gauss(0, self._pip_size * 0.12)
-                    price = round(anchor + drift, self._decimals)
+                if bar_start > self._last_candle_time:
+                    # Previous bar has closed! Open a brand new forming candle
+                    prev_close = self._current_candle["close"] if self._current_candle else live_price
+                    self._last_candle_time = bar_start
+                    self._current_candle = {
+                        "time": bar_start,
+                        "open": prev_close,
+                        "high": max(prev_close, live_price),
+                        "low": min(prev_close, live_price),
+                        "close": live_price,
+                        "volume": float(random.randint(5, 25)),
+                        "timestamp": bar_start,
+                        "datetime": datetime.utcfromtimestamp(bar_start).isoformat(),
+                    }
+                    logger.info(f"New {self.timeframe} candle opened for {self.symbol} at {self._current_candle['datetime']}")
+                else:
+                    # Update active forming candle
+                    self._current_candle["high"] = max(self._current_candle["high"], live_price)
+                    self._current_candle["low"] = min(self._current_candle["low"], live_price)
+                    self._current_candle["close"] = live_price
+                    self._current_candle["volume"] += float(random.randint(1, 4))
 
-                    now_ts = int(time.time())
-                    tf_seconds = self._timeframe_to_seconds(self.timeframe)
-                    bar_start = (now_ts // tf_seconds) * tf_seconds
-
-                    if self._current_candle is None or bar_start > self._last_candle_time:
-                        self._last_candle_time = bar_start
-                        self._current_candle = {
-                            "time": bar_start,
-                            "open": price,
-                            "high": price,
-                            "low": price,
-                            "close": price,
-                            "volume": float(random.randint(5, 20)),
-                            "timestamp": bar_start,
-                            "datetime": datetime.utcfromtimestamp(bar_start).isoformat(),
-                        }
-                    else:
-                        self._current_candle["high"] = max(self._current_candle["high"], price)
-                        self._current_candle["low"] = min(self._current_candle["low"], price)
-                        self._current_candle["close"] = price
-                        self._current_candle["volume"] += float(random.randint(1, 5))
-
-                    self.price_updated.emit(self.symbol, price, now_ts)
-                    self.candle_received.emit(self._current_candle.copy())
+                # 3. Emit live tick update to UI and Chart
+                self.price_updated.emit(self.symbol, live_price, now)
+                self.candle_received.emit(self._current_candle.copy())
 
             except Exception as e:
-                logger.debug(f"Live feed polling tick note: {e}")
+                logger.debug(f"Live feed tick loop note: {e}")
 
             time.sleep(self.interval_ms / 1000.0)
 
