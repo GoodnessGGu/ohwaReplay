@@ -71,7 +71,18 @@ class ReplayController:
         self.state.symbol = symbol
         self.state.timeframe = timeframe
 
-        if timeframe != "1m" and "datetime" in self._base_df.columns:
+        is_already_target_tf = False
+        if len(self._base_timestamps) >= 2:
+            sample_diff = abs(self._base_timestamps[1] - self._base_timestamps[0])
+            tf_seconds_map = {
+                "1m": 60, "3m": 180, "5m": 300, "15m": 900,
+                "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400
+            }
+            target_sec = tf_seconds_map.get(timeframe.lower(), 60)
+            if sample_diff >= target_sec * 0.8:
+                is_already_target_tf = True
+
+        if timeframe != "1m" and not is_already_target_tf and "datetime" in self._base_df.columns:
             # Check if resampling is needed or if data is already in target timeframe
             try:
                 self._df = TimeframeResampler.resample(self._base_df, timeframe)

@@ -288,14 +288,49 @@ class LiveFeedWorker(QThread):
         self.status_changed.emit(True, f"Live Connected ({feed_type})")
         logger.info(f"Live market feed started for {self.symbol} ({feed_type})")
 
-        # Initial anchor bootstrap
-        self._refresh_anchor_price()
-
         while self._running:
             try:
+                # 1. Primary: Direct MT5 broker stream (Zero lag, exact broker forming candle)
+                if mt5_connector.is_connected:
+                    forming_df = mt5_connector.fetch_candles(self.symbol, self.timeframe, count=1)
+                    tick_res = mt5_connector.get_live_ticker(self.symbol)
+                    if forming_df is not None and not forming_df.empty:
+                        last_row = forming_df.iloc[-1]
+                        bar_time = int(last_row["timestamp"])
+                        c_open = float(last_row["open"])
+                        c_high = float(last_row["high"])
+                        c_low = float(last_row["low"])
+                        c_close = float(last_row["close"])
+                        c_vol = float(last_row.get("volume", 1.0))
+
+                        if tick_res:
+                            bid, ask, last_p, tick_vol = tick_res
+                            live_p = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else (bid or ask or c_close))
+                            if live_p > 0:
+                                c_close = live_p
+                                c_high = max(c_high, live_p)
+                                c_low = min(c_low, live_p)
+                                if tick_vol > 0:
+                                    c_vol = tick_vol
+
+                        self._current_candle = {
+                            "time": bar_time,
+                            "open": c_open,
+                            "high": c_high,
+                            "low": c_low,
+                            "close": c_close,
+                            "volume": c_vol,
+                            "timestamp": bar_time,
+                            "datetime": str(last_row.get("datetime", "")),
+                        }
+                        self.price_updated.emit(self.symbol, c_close, bar_time)
+                        self.candle_received.emit(self._current_candle.copy())
+                        time.sleep(self.interval_ms / 1000.0)
+                        continue
+
+                # 2. Public Fallback Stream (Crypto / Gold / FX)
                 anchor = self._refresh_anchor_price()
                 if anchor and anchor > 0:
-                    # 1. Realistic Brownian Micro-Tick generation (sub-pip volatility drift)
                     drift = random.gauss(0, self._pip_size * 0.12)
                     price = round(anchor + drift, self._decimals)
 
@@ -303,7 +338,6 @@ class LiveFeedWorker(QThread):
                     tf_seconds = self._timeframe_to_seconds(self.timeframe)
                     bar_start = (now_ts // tf_seconds) * tf_seconds
 
-                    # 2. Update or advance forming bar
                     if self._current_candle is None or bar_start > self._last_candle_time:
                         self._last_candle_time = bar_start
                         self._current_candle = {
