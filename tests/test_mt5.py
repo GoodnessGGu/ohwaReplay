@@ -1,3 +1,4 @@
+import json
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
@@ -45,8 +46,20 @@ def test_mt5_timeframe_mapping():
 
 def test_live_data_loader_with_mt5_fallback():
     # When MT5 is not connected, LiveDataLoader falls back to public feed cleanly
-    df = LiveDataLoader.fetch_latest_candles("BTCUSD", "5m", limit=5)
-    assert df is not None
-    assert not df.empty
-    assert "timestamp" in df.columns
-    assert "close" in df.columns
+    mock_binance_data = [
+        [1700000000000, "50000.0", "50100.0", "49900.0", "50050.0", "12.5"],
+        [1700000300000, "50050.0", "50200.0", "50000.0", "50150.0", "15.2"],
+    ]
+    with patch("urllib.request.urlopen") as mock_url:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_binance_data).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_url.return_value = mock_resp
+
+        df = LiveDataLoader.fetch_latest_candles("BTCUSD", "5m", limit=5)
+        assert df is not None
+        assert not df.empty
+        assert "timestamp" in df.columns
+        assert "close" in df.columns
+        assert len(df) == 2
+

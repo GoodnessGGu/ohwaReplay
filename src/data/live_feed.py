@@ -162,6 +162,29 @@ class LiveFeedWorker(QThread):
 
         while self._running:
             try:
+                # If MT5 is connected, sync directly from official broker forming candle
+                if mt5_connector.is_connected:
+                    forming_df = mt5_connector.fetch_candles(self.symbol, self.timeframe, count=1)
+                    if forming_df is not None and not forming_df.empty:
+                        last_row = forming_df.iloc[-1]
+                        bar_start = int(last_row["timestamp"])
+                        curr_p = float(last_row["close"])
+                        self._last_candle_time = bar_start
+                        self._current_candle = {
+                            "time": bar_start,
+                            "open": float(last_row["open"]),
+                            "high": float(last_row["high"]),
+                            "low": float(last_row["low"]),
+                            "close": curr_p,
+                            "volume": float(last_row.get("volume", 1.0)),
+                            "timestamp": bar_start,
+                            "datetime": str(last_row.get("datetime", "")),
+                        }
+                        self.price_updated.emit(self.symbol, curr_p, bar_start)
+                        self.candle_received.emit(self._current_candle.copy())
+                        time.sleep(self.interval_ms / 1000.0)
+                        continue
+
                 price, vol = self._fetch_live_ticker(self.symbol)
                 if price and price > 0:
                     now_ts = int(time.time())

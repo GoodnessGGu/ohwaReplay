@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import pandas as pd
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
@@ -38,6 +39,7 @@ from src.workspace.workspace_schema import WorkspaceSchema
 
 from ui.analytics_panel import AnalyticsPanel
 from ui.backtest_dialog import BacktestDialog
+from ui.chart_tab_bar import ChartTabBar, ChartTabInfo
 from ui.dashboard import DashboardWidget
 from ui.drawing_properties_dialog import DrawingPropertiesDialog
 from ui.drawing_toolbar import DrawingToolBar
@@ -48,6 +50,7 @@ from ui.mt5_dialog import MT5Dialog
 from ui.positions_panel import PositionsPanel
 from ui.replay_bar import ReplayBar
 from ui.settings_dialog import SettingsDialog
+from ui.symbol_search_dialog import SymbolSearchDialog
 from ui.theme_manager import ThemeManager
 from ui.toolbar import MainToolBar
 
@@ -143,6 +146,11 @@ class MainWindow(QMainWindow):
         chart_center_layout = QVBoxLayout(chart_center_widget)
         chart_center_layout.setContentsMargins(0, 0, 0, 0)
         chart_center_layout.setSpacing(0)
+
+        # Multi-Chart Tab Bar (Up to 4 Tabs with '+')
+        self.chart_tab_bar = ChartTabBar(max_tabs=4, parent=self)
+        self.current_tab_index = 0
+        chart_center_layout.addWidget(self.chart_tab_bar)
 
         # Splitter for Multi-Chart View (Single vs Dual Split)
         self.chart_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -316,6 +324,15 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self._open_backtest_dialog)
         QShortcut(QKeySequence("Ctrl+M"), self, activated=self._open_mt5_dialog)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._sync_mt5_history)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_symbol_search_dialog)
+
+        # Multi-Chart Tabs shortcuts (Ctrl+T for new tab, Ctrl+W for close, Ctrl+1..4 for direct switch)
+        QShortcut(QKeySequence("Ctrl+T"), self, activated=self._on_tab_add_requested)
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self._close_current_tab)
+        QShortcut(QKeySequence("Ctrl+1"), self, activated=lambda: self._switch_to_tab_index(0))
+        QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self._switch_to_tab_index(1))
+        QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self._switch_to_tab_index(2))
+        QShortcut(QKeySequence("Ctrl+4"), self, activated=lambda: self._switch_to_tab_index(3))
 
         # Drawing shortcuts (Left Toolbar)
         QShortcut(QKeySequence("T"), self, activated=lambda: self.drawing_toolbar.set_active_tool("TRENDLINE"))
@@ -329,6 +346,11 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_drawing)
 
     def wire_events(self) -> None:
+        # Multi-Chart Tab Bar
+        self.chart_tab_bar.tab_selected.connect(self._on_tab_selected)
+        self.chart_tab_bar.tab_closed.connect(self._on_tab_closed)
+        self.chart_tab_bar.tab_add_requested.connect(self._on_tab_add_requested)
+
         # Drawing Left Toolbar
         self.drawing_toolbar.tool_selected.connect(self.chart_manager.select_tool)
         self.drawing_toolbar.undo_requested.connect(self._undo_drawing)
@@ -338,6 +360,7 @@ class MainWindow(QMainWindow):
         # Top Toolbar
         self.toolbar.mode_changed.connect(self._on_mode_changed)
         self.toolbar.symbol_changed.connect(self._on_symbol_changed)
+        self.toolbar.symbol_search_requested.connect(self._open_symbol_search_dialog)
         self.toolbar.timeframe_changed.connect(self._on_timeframe_changed)
         self.toolbar.indicators_requested.connect(self._open_indicators_dialog)
         self.toolbar.backtest_requested.connect(self._open_backtest_dialog)
@@ -445,6 +468,10 @@ class MainWindow(QMainWindow):
     def load_initial_data(self) -> None:
         sym = self.config.get("market", {}).get("default_symbol", "XAUUSD")
         tf = self.config.get("market", {}).get("default_timeframe", "5m")
+        if len(self.chart_tab_bar.tabs) == 0:
+            self.chart_tab_bar.add_tab(sym, tf, mode="replay")
+        else:
+            self.chart_tab_bar.update_tab_label(0, sym, tf, mode="replay")
         self._load_asset_data(sym, tf)
 
     def _load_asset_data(self, symbol: str, timeframe: str = "5m", preserve_timestamp: Optional[int] = None) -> None:
@@ -575,6 +602,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, "chart_widget_htf"):
             self.chart_widget_htf.set_symbol(symbol)
 
+        mode_str = "live" if (self.live_worker and self.live_worker.isRunning()) else "replay"
+        self.chart_tab_bar.update_tab_label(self.current_tab_index, symbol, tf, mode_str)
+
         # 1. Load dataset for newly selected asset
         if mt5_connector.is_connected:
             live_df = LiveDataLoader.fetch_latest_candles(symbol, timeframe=tf, limit=2000)
@@ -597,6 +627,9 @@ class MainWindow(QMainWindow):
 
     def _on_timeframe_changed(self, tf: str) -> None:
         sym = self.replay_controller.state.symbol
+        mode_str = "live" if (self.live_worker and self.live_worker.isRunning()) else "replay"
+        self.chart_tab_bar.update_tab_label(self.current_tab_index, sym, tf, mode_str)
+
         if mt5_connector.is_connected:
             live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
             if live_df is not None and not live_df.empty:
@@ -614,14 +647,15 @@ class MainWindow(QMainWindow):
 
     def _on_mode_changed(self, mode: str) -> None:
         """Toggles between historical replay mode and live streaming feed."""
+        sym = self.replay_controller.state.symbol
+        tf = self.replay_controller.state.timeframe
+        self.chart_tab_bar.update_tab_label(self.current_tab_index, sym, tf, mode)
+
         if mode == "live":
             # Stop replay playback
             self.replay_timer.stop()
             self.replay_bar.set_playing(False)
             self.replay_bar.setEnabled(False)
-
-            sym = self.replay_controller.state.symbol
-            tf = self.replay_controller.state.timeframe
 
             if self.live_worker:
                 self.live_worker.stop()
@@ -653,6 +687,137 @@ class MainWindow(QMainWindow):
                 self.live_worker = None
             self.replay_bar.setEnabled(True)
             logger.info("Switched to REPLAY Mode")
+
+    def _open_symbol_search_dialog(self) -> None:
+        """Opens TradingView-style Search & Filter Dialog for selecting assets."""
+        curr_sym = self.replay_controller.state.symbol
+        dlg = SymbolSearchDialog(current_symbol=curr_sym, parent=self)
+        if dlg.exec():
+            selected = dlg.get_selected_symbol()
+            if selected and selected != curr_sym:
+                self.toolbar.set_active_symbol(selected)
+                self._on_symbol_changed(selected)
+
+    def _save_current_tab_state(self) -> None:
+        """Persists the runtime state of the currently active chart tab."""
+        tab_info = self.chart_tab_bar.get_tab(self.current_tab_index)
+        if tab_info:
+            tab_info.symbol = self.replay_controller.state.symbol
+            tab_info.timeframe = self.replay_controller.state.timeframe
+            tab_info.mode = "live" if (self.live_worker and self.live_worker.isRunning()) else "replay"
+            tab_info.replay_index = self.replay_controller.current_index
+            tab_info.drawings = self.drawing_store.serialize()
+            tab_info.indicators = [x.copy() for x in self.chart_manager.active_indicators]
+
+    def _on_tab_selected(self, index: int) -> None:
+        """Switches active chart tab, restoring its symbol, timeframe, drawings, and replay state."""
+        if index == self.current_tab_index:
+            return
+
+        # 1. Save state of current tab
+        self._save_current_tab_state()
+
+        # 2. Update index
+        self.current_tab_index = index
+        target_tab = self.chart_tab_bar.get_tab(index)
+        if not target_tab:
+            return
+
+        # 3. Restore toolbar controls
+        self.toolbar.set_active_symbol(target_tab.symbol)
+        self.toolbar.set_active_timeframe(target_tab.timeframe)
+        self.toolbar.set_active_mode(target_tab.mode)
+
+        # 4. Restore drawings
+        self.drawing_store.deserialize(target_tab.drawings)
+        self.chart_manager.sync_drawings(self.drawing_store.get_all_drawings())
+
+        # 5. Restore indicators
+        self.chart_manager.active_indicators = [x.copy() for x in target_tab.indicators]
+
+        # 6. Load data for tab's symbol and timeframe
+        self.chart_widget.set_symbol(target_tab.symbol)
+        self._load_asset_data(target_tab.symbol, target_tab.timeframe, preserve_timestamp=None)
+
+        # 7. Restore replay position
+        if target_tab.replay_index >= 0 and target_tab.replay_index < len(self.replay_controller._df):
+            self.replay_controller.jump_to_index(target_tab.replay_index)
+        else:
+            latest_idx = len(self.replay_controller._df) - 1
+            self.replay_controller.jump_to_index(latest_idx)
+
+        vis_candles = self.replay_controller.get_visible_candles()
+        self.chart_manager.load_dataset(vis_candles)
+        self.chart_manager.sync_all_indicators(vis_candles)
+
+        # 8. Set live mode vs replay mode
+        if target_tab.mode == "live":
+            self._on_mode_changed("live")
+        else:
+            if self.live_worker:
+                self.live_worker.stop()
+                self.live_worker = None
+            self.replay_bar.setEnabled(True)
+
+        self._update_all_views()
+
+    def _on_tab_add_requested(self) -> None:
+        """Opens a new chart tab up to a maximum of 4 tabs."""
+        if len(self.chart_tab_bar.tabs) >= self.chart_tab_bar.max_tabs:
+            return
+
+        # Determine a reasonable default symbol for the new tab
+        current_sym = self.replay_controller.state.symbol
+        default_pairs = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "ETHUSD", "XAUUSD"]
+        new_sym = "EURUSD"
+        for p in default_pairs:
+            if p != current_sym and not any(t.symbol == p for t in self.chart_tab_bar.tabs):
+                new_sym = p
+                break
+
+        new_idx = self.chart_tab_bar.add_tab(new_sym, "15m", mode="replay")
+        if new_idx >= 0:
+            self._on_tab_selected(new_idx)
+
+    def _on_tab_closed(self, index: int) -> None:
+        """Closes a chart tab and switches to the nearest available tab."""
+        if len(self.chart_tab_bar.tabs) <= 1:
+            return
+
+        # If closing the currently selected tab, select adjacent tab first
+        if index == self.current_tab_index:
+            new_index = max(0, index - 1)
+            self.chart_tab_bar.remove_tab(index)
+            self.current_tab_index = new_index
+            target_tab = self.chart_tab_bar.get_tab(new_index)
+            if target_tab:
+                self.toolbar.set_active_symbol(target_tab.symbol)
+                self.toolbar.set_active_timeframe(target_tab.timeframe)
+                self.toolbar.set_active_mode(target_tab.mode)
+                self.drawing_store.deserialize(target_tab.drawings)
+                self.chart_manager.sync_drawings(self.drawing_store.get_all_drawings())
+                self.chart_manager.active_indicators = [x.copy() for x in target_tab.indicators]
+                self.chart_widget.set_symbol(target_tab.symbol)
+                self._load_asset_data(target_tab.symbol, target_tab.timeframe)
+                self.replay_controller.jump_to_index(target_tab.replay_index)
+                vis_candles = self.replay_controller.get_visible_candles()
+                self.chart_manager.load_dataset(vis_candles)
+                self.chart_manager.sync_all_indicators(vis_candles)
+                self._update_all_views()
+        else:
+            if index < self.current_tab_index:
+                self.current_tab_index -= 1
+            self.chart_tab_bar.remove_tab(index)
+
+    def _close_current_tab(self) -> None:
+        """Keyboard shortcut (Ctrl+W) to close the active tab."""
+        if len(self.chart_tab_bar.tabs) > 1:
+            self._on_tab_closed(self.current_tab_index)
+
+    def _switch_to_tab_index(self, idx: int) -> None:
+        """Keyboard shortcut (Ctrl+1..4) to directly switch to tab by index."""
+        if 0 <= idx < len(self.chart_tab_bar.tabs):
+            self.chart_tab_bar.select_tab(idx)
 
     def _on_live_candle_received(self, candle: Dict[str, Any]) -> None:
         """Handles live streaming tick / candle update."""

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.utils.constants import TIMEFRAMES
+from src.utils.constants import ASSET_CATEGORIES, TIMEFRAMES
 from ui.theme_manager import ThemeManager
 
 
@@ -21,6 +21,7 @@ class MainToolBar(QToolBar):
     """
 
     symbol_changed = pyqtSignal(str)
+    symbol_search_requested = pyqtSignal()
     timeframe_changed = pyqtSignal(str)
     settings_requested = pyqtSignal()
     indicators_requested = pyqtSignal()
@@ -48,17 +49,24 @@ class MainToolBar(QToolBar):
 
         self.addSeparator()
 
-        # Symbol selector
+        # Symbol selector with Search button
         lbl_sym = QLabel(" Symbol: ")
         lbl_sym.setStyleSheet("font-weight: bold; color: #848e9c; font-size: 12px;")
         self.addWidget(lbl_sym)
 
         self.symbol_combo = QComboBox()
-        self.symbol_combo.addItems(["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD"])
-        self.symbol_combo.setMinimumWidth(110)
+        self._populate_symbols()
+        self.symbol_combo.setMinimumWidth(115)
         self.symbol_combo.setStyleSheet("font-weight: bold; padding: 3px 8px;")
-        self.symbol_combo.currentTextChanged.connect(self.symbol_changed.emit)
+        self.symbol_combo.currentTextChanged.connect(self._on_symbol_combo_changed)
         self.addWidget(self.symbol_combo)
+
+        # Quick Symbol Search Dialog Button
+        btn_search = QPushButton("🔍")
+        btn_search.setToolTip("Search all markets & categorized asset pairs")
+        btn_search.setStyleSheet("font-weight: bold; padding: 3px 6px; background-color: #2a2e39; border: 1px solid #434651; border-radius: 4px;")
+        btn_search.clicked.connect(self.symbol_search_requested.emit)
+        self.addWidget(btn_search)
 
         self.addSeparator()
 
@@ -165,3 +173,55 @@ class MainToolBar(QToolBar):
         mode = "dual" if checked else "single"
         self.btn_layout.setText("⊞ 1 Chart (Single View)" if checked else "⊞ 2 Charts (Dual View)")
         self.layout_toggle_requested.emit(mode)
+
+    def _populate_symbols(self) -> None:
+        self.symbol_combo.blockSignals(True)
+        self.symbol_combo.clear()
+        for cat_name, items in ASSET_CATEGORIES.items():
+            for sym, desc in items:
+                short_desc = desc.split("/")[0].strip() if "/" in desc else desc.split(" ")[0]
+                self.symbol_combo.addItem(f"{sym} ({short_desc})", sym)
+        self.symbol_combo.blockSignals(False)
+
+    def _on_symbol_combo_changed(self) -> None:
+        sym = self.symbol_combo.currentData()
+        if not sym:
+            sym = self.symbol_combo.currentText().split(" ")[0]
+        if sym:
+            self.symbol_changed.emit(sym)
+
+    def set_active_symbol(self, symbol: str) -> None:
+        sym_clean = symbol.upper()
+        self.symbol_combo.blockSignals(True)
+        for i in range(self.symbol_combo.count()):
+            data = self.symbol_combo.itemData(i)
+            text = self.symbol_combo.itemText(i)
+            if data == sym_clean or text.startswith(sym_clean):
+                self.symbol_combo.setCurrentIndex(i)
+                self.symbol_combo.blockSignals(False)
+                return
+        # If custom symbol not in list, add it
+        self.symbol_combo.addItem(sym_clean, sym_clean)
+        self.symbol_combo.setCurrentIndex(self.symbol_combo.count() - 1)
+        self.symbol_combo.blockSignals(False)
+
+    def set_active_timeframe(self, tf: str) -> None:
+        idx = self.tf_combo.findText(tf)
+        if idx >= 0:
+            self.tf_combo.blockSignals(True)
+            self.tf_combo.setCurrentIndex(idx)
+            self.tf_combo.blockSignals(False)
+
+    def set_active_mode(self, mode: str) -> None:
+        is_live = (mode == "live")
+        self.btn_mode.blockSignals(True)
+        self.btn_mode.setChecked(is_live)
+        self.is_live_mode = is_live
+        if is_live:
+            self.btn_mode.setText("🔴 Live Market Mode")
+            self.btn_mode.setStyleSheet("font-weight: bold; padding: 4px 10px; background-color: #3b1414; color: #ef5350; border: 1px solid #ef5350; border-radius: 4px;")
+        else:
+            self.btn_mode.setText("🔁 Replay Mode")
+            self.btn_mode.setStyleSheet("font-weight: bold; padding: 4px 10px; background-color: #2a2e39; color: #2962ff; border: 1px solid #2962ff; border-radius: 4px;")
+        self.btn_mode.blockSignals(False)
+

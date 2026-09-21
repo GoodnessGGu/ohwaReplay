@@ -97,3 +97,43 @@ TIMEFRAME_MINUTES = {
     "4h": 240,
     "1d": 1440,
 }
+
+ASSET_CATEGORIES = {
+    "Forex Majors": [
+        ("EURUSD", "Euro / US Dollar"),
+        ("GBPUSD", "British Pound / US Dollar"),
+        ("USDJPY", "US Dollar / Japanese Yen"),
+        ("AUDUSD", "Australian Dollar / US Dollar"),
+        ("USDCAD", "US Dollar / Canadian Dollar"),
+        ("USDCHF", "US Dollar / Swiss Franc"),
+        ("NZDUSD", "New Zealand Dollar / US Dollar"),
+    ],
+    "Forex Crosses": [
+        ("EURGBP", "Euro / British Pound"),
+        ("EURJPY", "Euro / Japanese Yen"),
+        ("GBPJPY", "British Pound / Japanese Yen"),
+        ("AUDJPY", "Australian Dollar / Japanese Yen"),
+        ("EURAUD", "Euro / Australian Dollar"),
+        ("CADJPY", "Canadian Dollar / Japanese Yen"),
+        ("GBPAUD", "British Pound / Australian Dollar"),
+    ],
+    "Metals & Commodities": [
+        ("XAUUSD", "Spot Gold / US Dollar"),
+        ("XAGUSD", "Spot Silver / US Dollar"),
+        ("USOIL", "WTI Crude Oil"),
+        ("UKOIL", "Brent Crude Oil"),
+    ],
+    "Indices": [
+        ("US30", "Dow Jones Industrial Average"),
+        ("NAS100", "Nasdaq 100 Index"),
+        ("SPX500", "S&P 500 Index"),
+        ("GER40", "German DAX 40"),
+    ],
+    "Crypto (24/7)": [
+        ("BTCUSD", "Bitcoin / US Dollar"),
+        ("ETHUSD", "Ethereum / US Dollar"),
+        ("SOLUSD", "Solana / US Dollar"),
+        ("XRPUSD", "Ripple / US Dollar"),
+        ("BNBUSD", "Binance Coin / US Dollar"),
+    ],
+}
