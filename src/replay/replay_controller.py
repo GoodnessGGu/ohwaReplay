@@ -39,9 +39,17 @@ class ReplayController:
     def current_index(self) -> int:
         return self.state.current_index
 
+    @current_index.setter
+    def current_index(self, val: int) -> None:
+        self.state.current_index = val
+
     @property
     def total_candles(self) -> int:
         return self.state.total_candles
+
+    @total_candles.setter
+    def total_candles(self, val: int) -> None:
+        self.state.total_candles = val
 
     def load_data(
         self,

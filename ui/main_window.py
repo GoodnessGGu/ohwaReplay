@@ -851,8 +851,8 @@ class MainWindow(QMainWindow):
                     "volume": float(candle.get("volume", 1.0)),
                 }])
                 self.replay_controller._df = pd.concat([self.replay_controller._df, new_row], ignore_index=True)
+                self.replay_controller.total_candles = len(self.replay_controller._df)
                 self.replay_controller.current_index = len(self.replay_controller._df) - 1
-                self.replay_controller.state.current_index = self.replay_controller.current_index
 
         self.chart_manager.advance_candle(candle)
         self.account_engine.process_candle(candle)
