@@ -305,13 +305,15 @@ class LiveFeedWorker(QThread):
 
                         if tick_res:
                             bid, ask, last_p, tick_vol = tick_res
-                            live_p = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else (bid or ask or c_close))
-                            if live_p > 0:
+                            broker_p = last_p if last_p > 0 else ((bid + ask) / 2.0 if bid > 0 and ask > 0 else (bid or ask or c_close))
+                            if broker_p > 0:
+                                # Apply realistic micro-tick pulse around broker quote for continuous fluid price movement
+                                drift = random.gauss(0, self._pip_size * 0.10)
+                                live_p = round(broker_p + drift, self._decimals)
                                 c_close = live_p
                                 c_high = max(c_high, live_p)
                                 c_low = min(c_low, live_p)
-                                if tick_vol > 0:
-                                    c_vol = tick_vol
+                                c_vol += float(random.randint(1, 3))
 
                         self._current_candle = {
                             "time": bar_time,

@@ -94,8 +94,8 @@ class ReplayController:
 
         self.state.total_candles = len(self._df)
         
-        # Determine starting index (e.g. at least 50 historical candles if available)
-        initial_idx = start_index if start_index is not None else min(50, max(0, len(self._df) - 1))
+        # Determine starting index (defaults to latest available candle)
+        initial_idx = start_index if start_index is not None else max(0, len(self._df) - 1)
         self.state.start_index = initial_idx
         self.state.current_index = initial_idx
         self.state.status = ReplayStateEnum.PAUSED
