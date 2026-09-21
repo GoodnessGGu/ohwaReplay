@@ -43,6 +43,7 @@ from ui.drawing_toolbar import DrawingToolBar
 from ui.execution_panel import ExecutionPanel
 from ui.history_panel import HistoryPanel
 from ui.journal_panel import JournalPanel
+from ui.mt5_dialog import MT5Dialog
 from ui.positions_panel import PositionsPanel
 from ui.replay_bar import ReplayBar
 from ui.settings_dialog import SettingsDialog
@@ -222,6 +223,18 @@ class MainWindow(QMainWindow):
         act_exit.triggered.connect(self.close)
         file_menu.addAction(act_exit)
 
+        # Data & Broker Menu
+        data_menu = mb.addMenu("&Data")
+        act_mt5 = QAction("🔌 &FOREX.com / MetaTrader 5 Bridge...", self)
+        act_mt5.setShortcut(QKeySequence("Ctrl+M"))
+        act_mt5.triggered.connect(self._open_mt5_dialog)
+        data_menu.addAction(act_mt5)
+
+        data_menu.addSeparator()
+        act_open_csv2 = QAction("Open &CSV Market Data...", self)
+        act_open_csv2.triggered.connect(self._menu_open_csv)
+        data_menu.addAction(act_open_csv2)
+
         # Replay Menu
         replay_menu = mb.addMenu("&Replay")
         act_play = QAction("&Play / Pause", self)
@@ -292,9 +305,10 @@ class MainWindow(QMainWindow):
         help_menu.addAction(act_about)
 
     def setup_shortcuts(self) -> None:
-        # Indicators shortcut
+        # Indicators & Tools shortcuts
         QShortcut(QKeySequence("Ctrl+I"), self, activated=self._open_indicators_dialog)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self._open_backtest_dialog)
+        QShortcut(QKeySequence("Ctrl+M"), self, activated=self._open_mt5_dialog)
 
         # Drawing shortcuts (Left Toolbar)
         QShortcut(QKeySequence("T"), self, activated=lambda: self.drawing_toolbar.set_active_tool("TRENDLINE"))
@@ -320,6 +334,7 @@ class MainWindow(QMainWindow):
         self.toolbar.timeframe_changed.connect(self._on_timeframe_changed)
         self.toolbar.indicators_requested.connect(self._open_indicators_dialog)
         self.toolbar.backtest_requested.connect(self._open_backtest_dialog)
+        self.toolbar.mt5_requested.connect(self._open_mt5_dialog)
         self.toolbar.layout_toggle_requested.connect(self._toggle_layout)
         self.toolbar.audio_toggled.connect(self.audio_manager.set_enabled)
         self.toolbar.settings_requested.connect(self._open_settings)
@@ -629,6 +644,11 @@ class MainWindow(QMainWindow):
         sym = self.replay_controller.state.symbol
         tf = self.replay_controller.state.timeframe
         dlg = BacktestDialog(current_df=df, symbol=sym, timeframe=tf, parent=self)
+        dlg.exec()
+
+    def _open_mt5_dialog(self) -> None:
+        """Opens the MetaTrader 5 / FOREX.com connection configuration dialog."""
+        dlg = MT5Dialog(self)
         dlg.exec()
 
     def _handle_candle_advanced(self, event_data: Any) -> None:

@@ -26,6 +26,7 @@ class MainToolBar(QToolBar):
     indicators_requested = pyqtSignal()
     backtest_requested = pyqtSignal()
     layout_toggle_requested = pyqtSignal(str)
+    mt5_requested = pyqtSignal()
     mode_changed = pyqtSignal(str)  # "replay" or "live"
     audio_toggled = pyqtSignal(bool)
     theme_changed = pyqtSignal(str)
@@ -87,6 +88,12 @@ class MainToolBar(QToolBar):
         self.btn_backtest.setStyleSheet("font-weight: bold; padding: 4px 10px; background-color: #1e222d; border: 1px solid #ff9800; color: #ff9800; border-radius: 4px;")
         self.btn_backtest.clicked.connect(self.backtest_requested.emit)
         self.addWidget(self.btn_backtest)
+
+        # FOREX.com / MT5 Bridge Button
+        self.btn_mt5 = QPushButton("🔌 MT5 Bridge")
+        self.btn_mt5.setStyleSheet("font-weight: bold; padding: 4px 10px; background-color: #1e222d; border: 1px solid #26a69a; color: #26a69a; border-radius: 4px;")
+        self.btn_mt5.clicked.connect(self.mt5_requested.emit)
+        self.addWidget(self.btn_mt5)
 
         self.addSeparator()
 

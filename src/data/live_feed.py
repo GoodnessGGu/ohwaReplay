@@ -9,17 +9,28 @@ import numpy as np
 from PyQt6.QtCore import pyqtSignal, QObject, QThread, QTimer
 
 from src.data.data_loader import DataLoader
+from src.data.mt5_connector import mt5_connector
 from src.utils.logger import logger
 
 
 class LiveDataLoader:
     """
-    Fetches real-time up-to-date historical candles from public APIs (Binance for Crypto, Yahoo Finance for Gold & FX)
-    to fill the gap between offline datasets and the current live market price.
+    Fetches real-time up-to-date historical candles from MetaTrader 5 (FOREX.com / broker) or public APIs
+    (Binance for Crypto, Yahoo Finance for Gold & FX) to fill the gap between offline datasets and live market price.
     """
 
     @staticmethod
-    def fetch_latest_candles(symbol: str, timeframe: str = "5m", limit: int = 500) -> Optional[pd.DataFrame]:
+    def fetch_latest_candles(symbol: str, timeframe: str = "5m", limit: int = 1000) -> Optional[pd.DataFrame]:
+        # 1. Primary: If MetaTrader 5 Bridge is active, fetch direct from broker
+        if mt5_connector.is_connected:
+            try:
+                mt5_df = mt5_connector.fetch_candles(symbol, timeframe=timeframe, count=limit)
+                if mt5_df is not None and not mt5_df.empty:
+                    logger.info(f"Fetched {len(mt5_df)} candles for {symbol} directly from MT5 Bridge.")
+                    return mt5_df
+            except Exception as e:
+                logger.warning(f"MT5 candle fetch failed for {symbol}: {e}. Falling back to public feed.")
+
         symbol_upper = symbol.upper()
         try:
             if "BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper:
@@ -188,8 +199,18 @@ class LiveFeedWorker(QThread):
         self.status_changed.emit(False, "Live feed stopped")
 
     def _fetch_live_ticker(self, symbol: str) -> Tuple[float, float]:
-        """Fetches live ticker price using free public REST API."""
-        # 1. Binance Crypto pairs (BTCUSDT, ETHUSDT, etc.)
+        """Fetches live ticker price using MT5 bridge or public REST API."""
+        # 1. Primary: MetaTrader 5 direct broker tick quote
+        if mt5_connector.is_connected:
+            try:
+                res = mt5_connector.get_live_ticker(symbol)
+                if res:
+                    bid, ask, last_p, vol = res
+                    return last_p, vol
+            except Exception as e:
+                logger.debug(f"MT5 live ticker tick note: {e}")
+
+        # 2. Binance Crypto pairs (BTCUSDT, ETHUSDT, etc.)
         if "BTC" in symbol or "ETH" in symbol or "SOL" in symbol or "CRYPTO" in symbol:
             binance_pair = "BTCUSDT" if "BTC" in symbol else ("ETHUSDT" if "ETH" in symbol else "SOLUSDT")
             url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={binance_pair}"
@@ -200,7 +221,7 @@ class LiveFeedWorker(QThread):
                 vol = float(data.get("volume", 0.0)) / 1000.0
                 return price, vol
 
-        # 2. Gold / Forex pairs via public yahoo finance query
+        # 3. Gold / Forex pairs via public yahoo finance query
         yahoo_sym = "GC=F" if "XAU" in symbol or "GOLD" in symbol else f"{symbol}=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?interval=1m&range=1d"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
