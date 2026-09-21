@@ -308,6 +308,16 @@ class ExecutionPanel(QFrame):
         order_type = type_map.get(type_text, "BUY_LIMIT")
         self.pending_order_clicked.emit(order_type, lot, entry, sl or 0.0, tp or 0.0)
 
+    def _get_precision(self, symbol: str) -> int:
+        sym = symbol.upper()
+        if "JPY" in sym:
+            return 3
+        elif any(fx in sym for fx in ["EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF"]) and not any(k in sym for k in ["XAU", "GOLD", "BTC", "ETH", "US30", "SPX"]):
+            return 5
+        elif "BTC" in sym or "ETH" in sym or "SOL" in sym:
+            return 2
+        return 2
+
     def update_market_price(self, symbol: str, price: float, spread: float, balance: float, point_val: float) -> None:
         self.current_symbol = symbol
         self.current_price = price
@@ -315,11 +325,28 @@ class ExecutionPanel(QFrame):
         self.account_balance = balance
         self.point_value = point_val
 
+        prec = self._get_precision(symbol)
+        self.spin_entry.setDecimals(prec)
+        self.spin_sl.setDecimals(prec)
+        self.spin_tp.setDecimals(prec)
+        if prec == 5:
+            self.spin_entry.setSingleStep(0.0001)
+            self.spin_sl.setSingleStep(0.0001)
+            self.spin_tp.setSingleStep(0.0001)
+        elif prec == 3:
+            self.spin_entry.setSingleStep(0.01)
+            self.spin_sl.setSingleStep(0.01)
+            self.spin_tp.setSingleStep(0.01)
+        else:
+            self.spin_entry.setSingleStep(0.1)
+            self.spin_sl.setSingleStep(0.1)
+            self.spin_tp.setSingleStep(0.1)
+
         bid = price - (spread / 2.0)
         ask = price + (spread / 2.0)
 
         self.lbl_sym_header.setText(symbol)
-        self.lbl_bid.setText(f"BID: {bid:.2f}")
-        self.lbl_ask.setText(f"ASK: {ask:.2f}")
-        self.btn_buy.setText(f"BUY\n{ask:.2f}")
-        self.btn_sell.setText(f"SELL\n{bid:.2f}")
+        self.lbl_bid.setText(f"BID: {bid:.{prec}f}")
+        self.lbl_ask.setText(f"ASK: {ask:.{prec}f}")
+        self.btn_buy.setText(f"BUY\n{ask:.{prec}f}")
+        self.btn_sell.setText(f"SELL\n{bid:.{prec}f}")

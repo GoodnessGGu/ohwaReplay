@@ -314,6 +314,44 @@ def get_chart_html(theme: str = "dark") -> str:
   }}
 
   // Bridge functions
+  function setSymbol(symbol) {{
+    if (!symbol) return;
+    currentSymbol = symbol;
+    const sym = symbol.toUpperCase();
+    let precision = 2;
+    let minMove = 0.01;
+
+    if (sym.includes('JPY')) {{
+      precision = 3;
+      minMove = 0.001;
+    }} else if (sym.includes('EUR') || sym.includes('GBP') || sym.includes('AUD') || sym.includes('NZD') || (sym.includes('USD') && !sym.includes('XAU') && !sym.includes('BTC'))) {{
+      precision = 5;
+      minMove = 0.00001;
+    }} else if (sym.includes('XAU') || sym.includes('GOLD')) {{
+      precision = 2;
+      minMove = 0.01;
+    }} else if (sym.includes('BTC')) {{
+      precision = 2;
+      minMove = 0.1;
+    }}
+
+    if (candleSeries) {{
+      candleSeries.applyOptions({{
+        priceFormat: {{
+          type: 'price',
+          precision: precision,
+          minMove: minMove,
+        }}
+      }});
+    }}
+
+    const wm = document.getElementById('watermark');
+    if (wm) {{
+      wm.innerText = symbol + ' • TRADING REPLAY LAB';
+    }}
+    scheduleRender();
+  }}
+
   function setChartData(candleData, volumeData) {{
     currentCandles = candleData ? candleData.slice() : [];
     candleSeries.setData(candleData || []);

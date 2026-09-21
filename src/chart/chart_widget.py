@@ -129,6 +129,12 @@ class ChartWidget(QWebEngineView):
         except Exception as e:
             logger.error(f"Error parsing apply to panel from drawing: {e}")
 
+    def set_symbol(self, symbol: str) -> None:
+        """Updates active symbol, watermark, and price scale decimal precision."""
+        if not self._is_loaded:
+            return
+        self.page().runJavaScript(f"setSymbol('{symbol}');")
+
     def set_chart_data(self, candle_data: List[Dict[str, Any]], volume_data: Optional[List[Dict[str, Any]]] = None) -> None:
         """Sets full historical candle data up to current replay position."""
         if not self._is_loaded:

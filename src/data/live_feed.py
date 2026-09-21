@@ -1,12 +1,123 @@
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import urllib.request
+import pandas as pd
+import numpy as np
 
 from PyQt6.QtCore import pyqtSignal, QObject, QThread, QTimer
 
+from src.data.data_loader import DataLoader
 from src.utils.logger import logger
+
+
+class LiveDataLoader:
+    """
+    Fetches real-time up-to-date historical candles from public APIs (Binance for Crypto, Yahoo Finance for Gold & FX)
+    to fill the gap between offline datasets and the current live market price.
+    """
+
+    @staticmethod
+    def fetch_latest_candles(symbol: str, timeframe: str = "5m", limit: int = 500) -> Optional[pd.DataFrame]:
+        symbol_upper = symbol.upper()
+        try:
+            if "BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper:
+                return LiveDataLoader._fetch_binance_klines(symbol_upper, timeframe, limit)
+            else:
+                return LiveDataLoader._fetch_yahoo_klines(symbol_upper, timeframe)
+        except Exception as e:
+            logger.warning(f"Failed to fetch live historical candles for {symbol}: {e}")
+            return None
+
+    @staticmethod
+    def _fetch_binance_klines(symbol: str, timeframe: str, limit: int = 500) -> Optional[pd.DataFrame]:
+        binance_pair = "BTCUSDT" if "BTC" in symbol else ("ETHUSDT" if "ETH" in symbol else "SOLUSDT")
+        tf_map = {
+            "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m",
+            "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d"
+        }
+        interval = tf_map.get(timeframe.lower(), "5m")
+        url = f"https://api.binance.com/api/v3/klines?symbol={binance_pair}&interval={interval}&limit={limit}"
+
+        req = urllib.request.Request(url, headers={"User-Agent": "TradingReplayLab/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        rows = []
+        for k in data:
+            ts = int(k[0]) // 1000
+            rows.append({
+                "timestamp": ts,
+                "datetime": datetime.utcfromtimestamp(ts),
+                "open": float(k[1]),
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4]),
+                "volume": float(k[5]),
+            })
+
+        df = pd.DataFrame(rows)
+        return df if not df.empty else None
+
+    @staticmethod
+    def _fetch_yahoo_klines(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
+        yahoo_sym = "GC=F" if "XAU" in symbol or "GOLD" in symbol else f"{symbol}=X"
+        tf_map = {
+            "1m": ("1m", "1d"),
+            "3m": ("5m", "5d"),
+            "5m": ("5m", "5d"),
+            "15m": ("15m", "5d"),
+            "30m": ("30m", "1mo"),
+            "1h": ("60m", "1mo"),
+            "4h": ("60m", "3mo"),
+            "1d": ("1d", "1y"),
+        }
+        interval, range_str = tf_map.get(timeframe.lower(), ("5m", "5d"))
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?interval={interval}&range={range_str}"
+
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        res = data["chart"]["result"][0]
+        timestamps = res.get("timestamp", [])
+        quote = res["indicators"]["quote"][0]
+
+        opens = quote.get("open", [])
+        highs = quote.get("high", [])
+        lows = quote.get("low", [])
+        closes = quote.get("close", [])
+        volumes = quote.get("volume", [])
+
+        rows = []
+        for i in range(len(timestamps)):
+            if timestamps[i] and opens[i] is not None and closes[i] is not None:
+                ts = int(timestamps[i])
+                rows.append({
+                    "timestamp": ts,
+                    "datetime": datetime.utcfromtimestamp(ts),
+                    "open": float(opens[i]),
+                    "high": float(highs[i]) if highs[i] is not None else float(opens[i]),
+                    "low": float(lows[i]) if lows[i] is not None else float(opens[i]),
+                    "close": float(closes[i]),
+                    "volume": float(volumes[i]) if volumes[i] is not None else 10.0,
+                })
+
+        df = pd.DataFrame(rows)
+        return df if not df.empty else None
+
+    @staticmethod
+    def merge_with_live(existing_df: pd.DataFrame, live_df: pd.DataFrame) -> pd.DataFrame:
+        """Merges historical candles with newly fetched live candles smoothly without duplicates."""
+        if existing_df is None or existing_df.empty:
+            return live_df
+        if live_df is None or live_df.empty:
+            return existing_df
+
+        combined = pd.concat([existing_df, live_df], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["timestamp"]).sort_values(by="timestamp").reset_index(drop=True)
+        return combined
 
 
 class LiveFeedWorker(QThread):
@@ -19,7 +130,7 @@ class LiveFeedWorker(QThread):
     price_updated = pyqtSignal(str, float, int)
     status_changed = pyqtSignal(bool, str)
 
-    def __init__(self, symbol: str = "BTCUSD", timeframe: str = "1m", interval_ms: int = 2000, parent=None):
+    def __init__(self, symbol: str = "BTCUSD", timeframe: str = "1m", interval_ms: int = 1500, parent=None):
         super().__init__(parent)
         self.symbol = symbol.upper()
         self.timeframe = timeframe
@@ -76,7 +187,7 @@ class LiveFeedWorker(QThread):
 
         self.status_changed.emit(False, "Live feed stopped")
 
-    def _fetch_live_ticker(self, symbol: str) -> tuple[float, float]:
+    def _fetch_live_ticker(self, symbol: str) -> Tuple[float, float]:
         """Fetches live ticker price using free public REST API."""
         # 1. Binance Crypto pairs (BTCUSDT, ETHUSDT, etc.)
         if "BTC" in symbol or "ETH" in symbol or "SOL" in symbol or "CRYPTO" in symbol:

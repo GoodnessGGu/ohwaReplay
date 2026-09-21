@@ -21,7 +21,7 @@ from src.chart.chart_manager import ChartManager
 from src.chart.chart_widget import ChartWidget
 from src.core.account_engine import AccountEngine
 from src.data.data_loader import DataLoader
-from src.data.live_feed import LiveFeedWorker
+from src.data.live_feed import LiveDataLoader, LiveFeedWorker
 from src.data.synthetic_data import SyntheticDataGenerator
 from src.drawings.base_tool import Drawing
 from src.drawings.drawing_store import DrawingStore
@@ -548,9 +548,26 @@ class MainWindow(QMainWindow):
         self._update_all_views()
 
     def _on_symbol_changed(self, symbol: str) -> None:
-        curr_ts = self.replay_controller.state.current_timestamp
         tf = self.replay_controller.state.timeframe
-        self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=curr_ts)
+        self.chart_widget.set_symbol(symbol)
+        if hasattr(self, "chart_widget_htf"):
+            self.chart_widget_htf.set_symbol(symbol)
+
+        # 1. Load historical base for newly selected asset (jump to latest candle)
+        self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=None)
+
+        # 2. If live mode is active, re-sync live data and restart live feed
+        if self.live_worker and self.live_worker.isRunning():
+            self.live_worker.stop()
+            live_df = LiveDataLoader.fetch_latest_candles(symbol, timeframe=tf)
+            if live_df is not None and not live_df.empty:
+                merged = LiveDataLoader.merge_with_live(self.replay_controller._df, live_df)
+                self.replay_controller.load_data(merged, symbol=symbol, timeframe=tf, start_index=len(merged) - 1)
+
+            self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=1500)
+            self.live_worker.candle_received.connect(self._on_live_candle_received)
+            self.live_worker.start()
+
         self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
         self._update_all_views()
 
@@ -566,7 +583,7 @@ class MainWindow(QMainWindow):
     def _on_mode_changed(self, mode: str) -> None:
         """Toggles between historical replay mode and live streaming feed."""
         if mode == "live":
-            # Stop replay
+            # Stop replay playback
             self.replay_timer.stop()
             self.replay_bar.set_playing(False)
             self.replay_bar.setEnabled(False)
@@ -576,6 +593,16 @@ class MainWindow(QMainWindow):
 
             if self.live_worker:
                 self.live_worker.stop()
+
+            # Fill the gap: fetch latest candles up to the current moment and merge
+            live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf)
+            if live_df is not None and not live_df.empty:
+                merged = LiveDataLoader.merge_with_live(self.replay_controller._df, live_df)
+                self.replay_controller.load_data(merged, symbol=sym, timeframe=tf, start_index=len(merged) - 1)
+                self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+                self._update_all_views()
+            else:
+                self._go_to_latest_date()
 
             self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=1500)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
