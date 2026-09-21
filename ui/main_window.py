@@ -848,31 +848,9 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _sync_mt5_history(self) -> None:
-        """Downloads full spot history from MT5 and reloads the active asset dataset."""
-        if not mt5_connector.is_connected:
-            ok, msg = mt5_connector.connect(timeout=3000)
-            if not ok:
-                QMessageBox.warning(self, "MT5 Not Connected", f"Could not connect to MT5:\n{msg}\n\nPlease ensure your MT5 terminal is open.")
-                return
+        """Opens MT5 Dialog to manage connection and run background historical sync."""
+        self._open_mt5_dialog()
 
-        res = mt5_connector.download_historical_dataset(count=5000)
-        if res:
-            total_bars = sum(res.values())
-            # Clear in-memory data cache to force reload of fresh MT5 CSVs
-            self._data_cache.clear()
-            sym = self.replay_controller.state.symbol
-            tf = self.replay_controller.state.timeframe
-            self._load_asset_data(symbol=sym, timeframe=tf, preserve_timestamp=None)
-            self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
-            self._update_all_views()
-            QMessageBox.information(
-                self,
-                "Broker Data Synced",
-                f"Successfully synced {len(res)} timeframe datasets ({total_bars:,} total candles) directly from MT5!\n\n"
-                "Both Replay Mode and Live Mode are now 100% aligned to your broker's Spot prices.",
-            )
-        else:
-            QMessageBox.warning(self, "Sync Incomplete", "No candles could be downloaded. Check Market Watch symbols in MT5.")
 
     def _handle_candle_advanced(self, event_data: Any) -> None:
         candle = event_data.candle

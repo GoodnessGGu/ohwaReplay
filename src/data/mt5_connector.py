@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.utils.logger import logger
 
@@ -12,6 +13,59 @@ try:
 except ImportError:
     mt5 = None
     MT5_AVAILABLE = False
+
+
+class MT5SyncWorker(QThread):
+    """
+    Background worker thread to download MT5 historical datasets
+    without blocking the PyQt6 GUI event loop.
+    """
+    progress = pyqtSignal(int, int, str)  # current, total, message
+    finished_sync = pyqtSignal(dict)  # results dict
+
+    def __init__(
+        self,
+        symbols: Optional[List[str]] = None,
+        timeframes: Optional[List[str]] = None,
+        count: int = 5000,
+        output_dir: str = "data/historical",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.symbols = symbols or ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD"]
+        self.timeframes = timeframes or ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        self.count = count
+        self.output_dir = output_dir
+        self._is_running = True
+
+    def stop(self) -> None:
+        self._is_running = False
+
+    def run(self) -> None:
+        results: Dict[str, int] = {}
+        out_path = Path(self.output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        total_tasks = len(self.symbols) * len(self.timeframes)
+        current_step = 0
+
+        for sym in self.symbols:
+            for tf in self.timeframes:
+                if not self._is_running:
+                    break
+                current_step += 1
+                self.progress.emit(current_step, total_tasks, f"Downloading {sym} ({tf})...")
+                try:
+                    df = mt5_connector.fetch_candles(sym, tf, count=self.count)
+                    if df is not None and not df.empty:
+                        file_dest = out_path / f"{sym.upper()}_{tf}.csv"
+                        df.to_csv(file_dest, index=False)
+                        results[f"{sym}_{tf}"] = len(df)
+                except Exception as e:
+                    logger.warning(f"Failed to sync historical data for {sym} {tf}: {e}")
+
+        self.finished_sync.emit(results)
+
 
 
 class MT5Connector:
