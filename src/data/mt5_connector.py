@@ -282,6 +282,8 @@ class MT5Connector:
 
             df = pd.DataFrame(rates)
             df.rename(columns={"time": "timestamp", "tick_volume": "volume"}, inplace=True)
+            if self._server_utc_offset != 0:
+                df["timestamp"] = df["timestamp"] - self._server_utc_offset
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
             df = df.drop_duplicates(subset=["timestamp"]).sort_values(by="timestamp").reset_index(drop=True)
             df = df[["timestamp", "datetime", "open", "high", "low", "close", "volume"]]
