@@ -21,12 +21,14 @@ from src.chart.chart_manager import ChartManager
 from src.chart.chart_widget import ChartWidget
 from src.core.account_engine import AccountEngine
 from src.data.data_loader import DataLoader
+from src.data.live_feed import LiveFeedWorker
 from src.data.synthetic_data import SyntheticDataGenerator
 from src.drawings.base_tool import Drawing
 from src.drawings.drawing_store import DrawingStore
 from src.events.event_bus import EventBus, event_bus
 from src.notifications.notification_manager import NotificationManager
 from src.replay.replay_controller import ReplayController
+from src.utils.audio_manager import audio_manager
 from src.utils.constants import Direction, EventType, IntrabarExecutionMode, OrderType
 from src.utils.helpers import load_yaml_config
 from src.utils.logger import logger
@@ -34,6 +36,7 @@ from src.workspace.workspace_manager import WorkspaceManager
 from src.workspace.workspace_schema import WorkspaceSchema
 
 from ui.analytics_panel import AnalyticsPanel
+from ui.backtest_dialog import BacktestDialog
 from ui.dashboard import DashboardWidget
 from ui.drawing_properties_dialog import DrawingPropertiesDialog
 from ui.drawing_toolbar import DrawingToolBar
@@ -87,9 +90,11 @@ class MainWindow(QMainWindow):
         self._heavy_update_timer.setSingleShot(True)
         self._heavy_update_timer.timeout.connect(self._update_heavy_views)
 
-        # 3. Playback timer
+        # 3. Playback & Live streaming services
         self.replay_timer = QTimer(self)
         self.replay_timer.timeout.connect(self._on_replay_timer_tick)
+        self.live_worker: Optional[LiveFeedWorker] = None
+        self.audio_manager = audio_manager
 
         # 4. Initialize UI
         self.init_ui()
@@ -255,6 +260,12 @@ class MainWindow(QMainWindow):
         act_close.triggered.connect(self._close_all_positions)
         trading_menu.addAction(act_close)
 
+        trading_menu.addSeparator()
+        act_backtest = QAction("🚀 &Automated Strategy Backtester...", self)
+        act_backtest.setShortcut(QKeySequence("Ctrl+B"))
+        act_backtest.triggered.connect(self._open_backtest_dialog)
+        trading_menu.addAction(act_backtest)
+
         # View Menu
         view_menu = mb.addMenu("&View")
         theme_menu = view_menu.addMenu("🎨 &Themes")
@@ -283,6 +294,7 @@ class MainWindow(QMainWindow):
     def setup_shortcuts(self) -> None:
         # Indicators shortcut
         QShortcut(QKeySequence("Ctrl+I"), self, activated=self._open_indicators_dialog)
+        QShortcut(QKeySequence("Ctrl+B"), self, activated=self._open_backtest_dialog)
 
         # Drawing shortcuts (Left Toolbar)
         QShortcut(QKeySequence("T"), self, activated=lambda: self.drawing_toolbar.set_active_tool("TRENDLINE"))
@@ -303,10 +315,13 @@ class MainWindow(QMainWindow):
         self.drawing_toolbar.clear_requested.connect(self._clear_drawings)
 
         # Top Toolbar
+        self.toolbar.mode_changed.connect(self._on_mode_changed)
         self.toolbar.symbol_changed.connect(self._on_symbol_changed)
         self.toolbar.timeframe_changed.connect(self._on_timeframe_changed)
         self.toolbar.indicators_requested.connect(self._open_indicators_dialog)
+        self.toolbar.backtest_requested.connect(self._open_backtest_dialog)
         self.toolbar.layout_toggle_requested.connect(self._toggle_layout)
+        self.toolbar.audio_toggled.connect(self.audio_manager.set_enabled)
         self.toolbar.settings_requested.connect(self._open_settings)
         self.toolbar.theme_changed.connect(self._on_theme_changed)
 
@@ -544,6 +559,50 @@ class MainWindow(QMainWindow):
         if success:
             self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
             self._update_all_views()
+
+        if self.live_worker and self.live_worker.isRunning():
+            self.live_worker.timeframe = tf
+
+    def _on_mode_changed(self, mode: str) -> None:
+        """Toggles between historical replay mode and live streaming feed."""
+        if mode == "live":
+            # Stop replay
+            self.replay_timer.stop()
+            self.replay_bar.set_playing(False)
+            self.replay_bar.setEnabled(False)
+
+            sym = self.replay_controller.state.symbol
+            tf = self.replay_controller.state.timeframe
+
+            if self.live_worker:
+                self.live_worker.stop()
+
+            self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=1500)
+            self.live_worker.candle_received.connect(self._on_live_candle_received)
+            self.live_worker.start()
+            logger.info(f"Switched to LIVE Mode ({sym} - {tf})")
+        else:
+            if self.live_worker:
+                self.live_worker.stop()
+                self.live_worker = None
+            self.replay_bar.setEnabled(True)
+            logger.info("Switched to REPLAY Mode")
+
+    def _on_live_candle_received(self, candle: Dict[str, Any]) -> None:
+        """Handles live streaming tick / candle update."""
+        self.chart_manager.advance_candle(candle)
+        self.account_engine.process_candle(candle)
+        self._update_fast_views(candle)
+        if not self._heavy_update_timer.isActive():
+            self._heavy_update_timer.start(120)
+
+    def _open_backtest_dialog(self) -> None:
+        """Opens the Quantitative Automated Strategy Backtester Dialog."""
+        df = self.replay_controller._df
+        sym = self.replay_controller.state.symbol
+        tf = self.replay_controller.state.timeframe
+        dlg = BacktestDialog(current_df=df, symbol=sym, timeframe=tf, parent=self)
+        dlg.exec()
 
     def _handle_candle_advanced(self, event_data: Any) -> None:
         candle = event_data.candle
