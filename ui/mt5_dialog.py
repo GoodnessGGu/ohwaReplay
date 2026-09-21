@@ -49,7 +49,11 @@ class MT5Dialog(QDialog):
         # Terminal Path
         path_box = QHBoxLayout()
         self.edit_path = QLineEdit()
-        self.edit_path.setPlaceholderText("Auto-detect running terminal (or select terminal64.exe)")
+        default_path = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+        if Path(default_path).exists():
+            self.edit_path.setText(default_path)
+        else:
+            self.edit_path.setPlaceholderText("Auto-detect running terminal (or select terminal64.exe)")
         btn_browse = QPushButton("Browse...")
         btn_browse.clicked.connect(self._browse_terminal)
         path_box.addWidget(self.edit_path)
