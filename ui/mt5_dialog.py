@@ -102,11 +102,17 @@ class MT5Dialog(QDialog):
         self.btn_disconnect.clicked.connect(self._on_disconnect_clicked)
         self.btn_disconnect.setEnabled(False)
 
+        self.btn_sync = QPushButton("📥 Sync Historical Data to Replay")
+        self.btn_sync.setStyleSheet("background-color: #1e222d; border: 1px solid #ff9800; color: #ff9800; font-weight: bold; padding: 8px 16px; border-radius: 4px;")
+        self.btn_sync.clicked.connect(self._on_sync_clicked)
+        self.btn_sync.setEnabled(False)
+
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.btn_connect)
         btn_layout.addWidget(self.btn_disconnect)
+        btn_layout.addWidget(self.btn_sync)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_close)
         layout.addLayout(btn_layout)
@@ -124,6 +130,7 @@ class MT5Dialog(QDialog):
             self.lbl_status.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px; border-radius: 6px; background-color: #1b3a2f; color: #26a69a;")
             self.btn_connect.setEnabled(False)
             self.btn_disconnect.setEnabled(True)
+            self.btn_sync.setEnabled(True)
 
             acc = mt5_connector.get_account_summary()
             if acc:
@@ -137,6 +144,7 @@ class MT5Dialog(QDialog):
             self.lbl_status.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px; border-radius: 6px; background-color: #3a1e1e; color: #ef5350;")
             self.btn_connect.setEnabled(True)
             self.btn_disconnect.setEnabled(False)
+            self.btn_sync.setEnabled(False)
             self.lbl_broker.setText("--")
             self.lbl_account.setText("--")
             self.lbl_balance.setText("--")
@@ -173,3 +181,27 @@ class MT5Dialog(QDialog):
         mt5_connector.disconnect()
         self._refresh_status()
         QMessageBox.information(self, "MT5 Disconnected", "MetaTrader 5 Bridge disconnected.")
+
+    def _on_sync_clicked(self) -> None:
+        if not mt5_connector.is_connected:
+            QMessageBox.warning(self, "Not Connected", "Please connect to MT5 first.")
+            return
+
+        self.btn_sync.setText("Syncing Data...")
+        self.btn_sync.setEnabled(False)
+        self.repaint()
+
+        res = mt5_connector.download_historical_dataset(count=5000)
+        self.btn_sync.setText("📥 Sync Historical Data to Replay")
+        self.btn_sync.setEnabled(True)
+
+        if res:
+            total_bars = sum(res.values())
+            QMessageBox.information(
+                self,
+                "Historical Data Synced",
+                f"Successfully synced {len(res)} timeframe datasets ({total_bars:,} total candles) directly from MT5 into your local Replay storage.\n\n"
+                "Both Replay and Live modes now share 100% exact broker Spot prices.",
+            )
+        else:
+            QMessageBox.warning(self, "Sync Incomplete", "No candles could be downloaded. Check Market Watch symbols in MT5.")

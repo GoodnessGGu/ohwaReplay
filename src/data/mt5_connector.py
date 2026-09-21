@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
@@ -34,6 +35,7 @@ class MT5Connector:
         self._connected: bool = False
         self._terminal_path: Optional[str] = None
         self._symbol_cache: Dict[str, str] = {}
+        self._server_utc_offset: int = 0
         self._initialized = True
 
     @property
@@ -75,13 +77,14 @@ class MT5Connector:
             if not ok:
                 err_code, err_desc = mt5.last_error()
                 self._connected = False
-                msg = f"Failed to connect to MT5 (Error {err_code}: {err_desc}). Ensure your FOREX.com MT5 terminal is running."
+                msg = f"Failed to connect to MT5 (Error {err_code}: {err_desc}). Ensure your MT5 terminal is running."
                 logger.warning(msg)
                 return False, msg
 
             self._connected = True
             self._terminal_path = path
             self._refresh_symbol_cache()
+            self._server_utc_offset = self._compute_server_offset()
 
             term_info = mt5.terminal_info()
             company = term_info.company if term_info else "MetaTrader 5"
@@ -117,6 +120,23 @@ class MT5Connector:
                 self._symbol_cache = {s.name.upper(): s.name for s in symbols}
         except Exception as e:
             logger.debug(f"Error caching MT5 symbols: {e}")
+
+    def _compute_server_offset(self) -> int:
+        """Computes server timezone offset in seconds relative to UTC once upon connection."""
+        for test_sym in ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]:
+            resolved = self.resolve_symbol(test_sym)
+            if resolved:
+                try:
+                    mt5.symbol_select(resolved, True)
+                    tick = mt5.symbol_info_tick(resolved)
+                    if tick and tick.time > 0:
+                        now_utc = int(time.time())
+                        offset = int(round((tick.time - now_utc) / 3600.0) * 3600)
+                        logger.info(f"MT5 Server timezone offset: {offset}s ({offset // 3600} hours from UTC)")
+                        return offset
+                except Exception as e:
+                    logger.debug(f"Error checking offset for {test_sym}: {e}")
+        return 0
 
     def resolve_symbol(self, symbol: str) -> Optional[str]:
         """
@@ -164,25 +184,6 @@ class MT5Connector:
         }
         return tf_map.get(timeframe.lower(), mt5.TIMEFRAME_M5)
 
-    def get_server_utc_offset(self, broker_symbol: str = "EURUSD") -> int:
-        """
-        Calculates broker server timezone offset in seconds relative to UTC
-        (e.g. +10800s / 3 hours for Eastern European Time / MetaQuotes servers).
-        """
-        if not self.is_connected:
-            return 0
-        try:
-            resolved = self.resolve_symbol(broker_symbol) or broker_symbol
-            mt5.symbol_select(resolved, True)
-            tick = mt5.symbol_info_tick(resolved)
-            if tick and tick.time > 0:
-                now_utc = int(time.time())
-                offset_sec = int(round((tick.time - now_utc) / 3600.0) * 3600)
-                return offset_sec
-        except Exception as e:
-            logger.debug(f"Error computing server UTC offset: {e}")
-        return 0
-
     def fetch_candles(self, symbol: str, timeframe: str = "5m", count: int = 5000) -> Optional[pd.DataFrame]:
         """
         Fetches official broker historical OHLCV candle data directly from MT5 terminal,
@@ -197,21 +198,18 @@ class MT5Connector:
                 logger.warning(f"Could not resolve MT5 symbol for {symbol}")
                 return None
 
-            # Ensure symbol is selected in Market Watch
             mt5.symbol_select(broker_symbol, True)
-
             mt5_tf = self._map_timeframe(timeframe)
-            rates = mt5.copy_rates_from_pos(broker_symbol, mt5_tf, 0, count)
+            rates = mt5.copy_rates_from_pos(broker_symbol, mt5_tf, 0, min(count, 50000))
 
             if rates is None or len(rates) == 0:
                 logger.warning(f"No rates returned from MT5 for {broker_symbol}")
                 return None
 
-            offset = self.get_server_utc_offset(broker_symbol)
             df = pd.DataFrame(rates)
             df.rename(columns={"time": "timestamp", "tick_volume": "volume"}, inplace=True)
-            if offset != 0:
-                df["timestamp"] = df["timestamp"] - offset
+            if self._server_utc_offset != 0:
+                df["timestamp"] = df["timestamp"] - self._server_utc_offset
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
             df = df.drop_duplicates(subset=["timestamp"]).sort_values(by="timestamp").reset_index(drop=True)
             df = df[["timestamp", "datetime", "open", "high", "low", "close", "volume"]]
@@ -249,6 +247,40 @@ class MT5Connector:
         except Exception as e:
             logger.debug(f"MT5 live ticker error for {symbol}: {e}")
             return None
+
+    def download_historical_dataset(
+        self,
+        symbols: Optional[List[str]] = None,
+        timeframes: Optional[List[str]] = None,
+        count: int = 5000,
+        output_dir: str = "data/historical",
+    ) -> Dict[str, int]:
+        """
+        Downloads official broker OHLCV candle datasets from MT5 and saves them to data/historical/
+        so that both Replay and Live modes share the exact same broker Spot prices.
+        """
+        if not self.is_connected:
+            return {}
+
+        symbols = symbols or ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"]
+        timeframes = timeframes or ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        results: Dict[str, int] = {}
+        out_path = Path(output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        for sym in symbols:
+            for tf in timeframes:
+                try:
+                    df = self.fetch_candles(sym, tf, count=count)
+                    if df is not None and not df.empty:
+                        file_dest = out_path / f"{sym.upper()}_{tf}.csv"
+                        df.to_csv(file_dest, index=False)
+                        results[f"{sym}_{tf}"] = len(df)
+                except Exception as e:
+                    logger.warning(f"Failed to sync historical data for {sym} {tf}: {e}")
+
+        logger.info(f"Successfully synced {len(results)} historical files from MT5 to {output_dir}")
+        return results
 
     def get_account_summary(self) -> Optional[Dict[str, Any]]:
         """Retrieves active MT5 account metrics."""
