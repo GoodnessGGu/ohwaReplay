@@ -164,9 +164,29 @@ class MT5Connector:
         }
         return tf_map.get(timeframe.lower(), mt5.TIMEFRAME_M5)
 
+    def get_server_utc_offset(self, broker_symbol: str = "EURUSD") -> int:
+        """
+        Calculates broker server timezone offset in seconds relative to UTC
+        (e.g. +10800s / 3 hours for Eastern European Time / MetaQuotes servers).
+        """
+        if not self.is_connected:
+            return 0
+        try:
+            resolved = self.resolve_symbol(broker_symbol) or broker_symbol
+            mt5.symbol_select(resolved, True)
+            tick = mt5.symbol_info_tick(resolved)
+            if tick and tick.time > 0:
+                now_utc = int(time.time())
+                offset_sec = int(round((tick.time - now_utc) / 3600.0) * 3600)
+                return offset_sec
+        except Exception as e:
+            logger.debug(f"Error computing server UTC offset: {e}")
+        return 0
+
     def fetch_candles(self, symbol: str, timeframe: str = "5m", count: int = 5000) -> Optional[pd.DataFrame]:
         """
-        Fetches official broker historical OHLCV candle data directly from MT5 terminal.
+        Fetches official broker historical OHLCV candle data directly from MT5 terminal,
+        normalized strictly to UTC timestamps to ensure seamless alignment with charts and indicators.
         """
         if not self.is_connected:
             return None
@@ -187,9 +207,13 @@ class MT5Connector:
                 logger.warning(f"No rates returned from MT5 for {broker_symbol}")
                 return None
 
+            offset = self.get_server_utc_offset(broker_symbol)
             df = pd.DataFrame(rates)
             df.rename(columns={"time": "timestamp", "tick_volume": "volume"}, inplace=True)
+            if offset != 0:
+                df["timestamp"] = df["timestamp"] - offset
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+            df = df.drop_duplicates(subset=["timestamp"]).sort_values(by="timestamp").reset_index(drop=True)
             df = df[["timestamp", "datetime", "open", "high", "low", "close", "volume"]]
 
             return df if not df.empty else None
