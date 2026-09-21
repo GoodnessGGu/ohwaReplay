@@ -398,16 +398,16 @@ def get_chart_html(theme: str = "dark") -> str:
       if (currentCandles.length > 0) {{
         const lastCandle = currentCandles[currentCandles.length - 1];
         if (candle.time < lastCandle.time) {{
-          // Re-filter/trim candles to current time and call setData to prevent Lightweight Charts crash
-          currentCandles = currentCandles.filter(c => c.time <= candle.time);
-          if (currentCandles.length > 0 && currentCandles[currentCandles.length - 1].time === candle.time) {{
-            currentCandles[currentCandles.length - 1] = candle;
-          }} else {{
-            currentCandles.push(candle);
-          }}
+          // Re-filter/trim candles to strictly before current time and append
+          currentCandles = currentCandles.filter(c => c.time < candle.time);
+          currentCandles.push(candle);
           candleSeries.setData(currentCandles);
           if (volume) {{
-            volumeSeries.update(volume);
+            volumeSeries.setData(currentCandles.map(c => ({{
+              time: c.time,
+              value: (c.time === candle.time && volume.value !== undefined) ? volume.value : 0,
+              color: c.close >= c.open ? 'rgba(38, 166, 154, 0.4)' : 'rgba(239, 83, 80, 0.4)'
+            }})));
           }}
           scheduleRender();
           return;
@@ -419,15 +419,21 @@ def get_chart_html(theme: str = "dark") -> str:
       }} else {{
         currentCandles.push(candle);
       }}
+
       candleSeries.update(candle);
       if (volume) {{
-        volumeSeries.update(volume);
+        try {{
+          volumeSeries.update(volume);
+        }} catch (vErr) {{}}
       }}
     }} catch (err) {{
-      console.warn('Recovered from candleSeries.update error:', err);
+      try {{
+        candleSeries.setData(currentCandles);
+      }} catch (e2) {{}}
     }}
     scheduleRender();
   }}
+
 
   function setMarkers(markers) {{
     candleSeries.setMarkers(markers || []);

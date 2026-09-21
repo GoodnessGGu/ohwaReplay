@@ -63,11 +63,15 @@ class ChartTabBar(QWidget):
         self.tab_bar.setMovable(False)
         self.tab_bar.setExpanding(False)
         self.tab_bar.setStyleSheet("""
+            QTabBar {
+                font-size: 11px;
+            }
             QTabBar::tab {
                 background: #1e222d;
                 color: #848e9c;
                 font-weight: 700;
                 font-size: 11px;
+
                 padding: 5px 12px;
                 margin-right: 3px;
                 border-top-left-radius: 4px;
