@@ -226,10 +226,15 @@ class MainWindow(QMainWindow):
 
         # Data & Broker Menu
         data_menu = mb.addMenu("&Data")
-        act_mt5 = QAction("🔌 &FOREX.com / MetaTrader 5 Bridge...", self)
+        act_mt5 = QAction("🔌 &MetaTrader 5 / FOREX.com Bridge...", self)
         act_mt5.setShortcut(QKeySequence("Ctrl+M"))
         act_mt5.triggered.connect(self._open_mt5_dialog)
         data_menu.addAction(act_mt5)
+
+        act_sync_mt5 = QAction("📥 &Sync Historical Broker Data from MT5", self)
+        act_sync_mt5.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        act_sync_mt5.triggered.connect(self._sync_mt5_history)
+        data_menu.addAction(act_sync_mt5)
 
         data_menu.addSeparator()
         act_open_csv2 = QAction("Open &CSV Market Data...", self)
@@ -310,6 +315,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+I"), self, activated=self._open_indicators_dialog)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self._open_backtest_dialog)
         QShortcut(QKeySequence("Ctrl+M"), self, activated=self._open_mt5_dialog)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._sync_mt5_history)
 
         # Drawing shortcuts (Left Toolbar)
         QShortcut(QKeySequence("T"), self, activated=lambda: self.drawing_toolbar.set_active_tool("TRENDLINE"))
@@ -668,6 +674,33 @@ class MainWindow(QMainWindow):
         """Opens the MetaTrader 5 / FOREX.com connection configuration dialog."""
         dlg = MT5Dialog(self)
         dlg.exec()
+
+    def _sync_mt5_history(self) -> None:
+        """Downloads full spot history from MT5 and reloads the active asset dataset."""
+        if not mt5_connector.is_connected:
+            ok, msg = mt5_connector.connect(timeout=3000)
+            if not ok:
+                QMessageBox.warning(self, "MT5 Not Connected", f"Could not connect to MT5:\n{msg}\n\nPlease ensure your MT5 terminal is open.")
+                return
+
+        res = mt5_connector.download_historical_dataset(count=5000)
+        if res:
+            total_bars = sum(res.values())
+            # Clear in-memory data cache to force reload of fresh MT5 CSVs
+            self._data_cache.clear()
+            sym = self.replay_controller.state.symbol
+            tf = self.replay_controller.state.timeframe
+            self._load_asset_data(symbol=sym, timeframe=tf, preserve_timestamp=None)
+            self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+            self._update_all_views()
+            QMessageBox.information(
+                self,
+                "Broker Data Synced",
+                f"Successfully synced {len(res)} timeframe datasets ({total_bars:,} total candles) directly from MT5!\n\n"
+                "Both Replay Mode and Live Mode are now 100% aligned to your broker's Spot prices.",
+            )
+        else:
+            QMessageBox.warning(self, "Sync Incomplete", "No candles could be downloaded. Check Market Watch symbols in MT5.")
 
     def _handle_candle_advanced(self, event_data: Any) -> None:
         candle = event_data.candle
