@@ -610,11 +610,16 @@ class MainWindow(QMainWindow):
         if mt5_connector.is_connected:
             live_df = LiveDataLoader.fetch_latest_candles(symbol, timeframe=tf, limit=2000)
             if live_df is not None and not live_df.empty:
+                if self.live_worker and self.live_worker.isRunning():
+                    live_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=symbol)
                 self.replay_controller.load_data(live_df, symbol=symbol, timeframe=tf, start_index=len(live_df) - 1)
             else:
                 self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=None)
         else:
             self._load_asset_data(symbol=symbol, timeframe=tf, preserve_timestamp=None)
+            if self.live_worker and self.live_worker.isRunning() and self.replay_controller._df is not None:
+                filled = LiveDataLoader.fill_gap_to_now(self.replay_controller._df, timeframe=tf, symbol=symbol)
+                self.replay_controller.load_data(filled, symbol=symbol, timeframe=tf, start_index=len(filled) - 1)
 
         # 2. If live mode is active, restart live worker
         if self.live_worker and self.live_worker.isRunning():
@@ -628,18 +633,24 @@ class MainWindow(QMainWindow):
 
     def _on_timeframe_changed(self, tf: str) -> None:
         sym = self.replay_controller.state.symbol
-        mode_str = "live" if (self.live_worker and self.live_worker.isRunning()) else "replay"
+        is_live = (self.live_worker and self.live_worker.isRunning())
+        mode_str = "live" if is_live else "replay"
         self.chart_tab_bar.update_tab_label(self.current_tab_index, sym, tf, mode_str)
 
         if mt5_connector.is_connected:
             live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
             if live_df is not None and not live_df.empty:
+                if is_live:
+                    live_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
                 self.replay_controller.load_data(live_df, symbol=sym, timeframe=tf, start_index=len(live_df) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                 self._update_all_views()
         else:
             success = self.replay_controller.set_timeframe(tf)
             if success:
+                if is_live and self.replay_controller._df is not None:
+                    filled = LiveDataLoader.fill_gap_to_now(self.replay_controller._df, timeframe=tf, symbol=sym)
+                    self.replay_controller.load_data(filled, symbol=sym, timeframe=tf, start_index=len(filled) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                 self._update_all_views()
 
@@ -661,22 +672,21 @@ class MainWindow(QMainWindow):
             if self.live_worker:
                 self.live_worker.stop()
 
-            # Fill the gap: fetch latest candles up to the current moment and load
+            # Fill the gap: fetch latest candles or fill gap up to the current wall-clock moment
             if mt5_connector.is_connected:
                 live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf, limit=2000)
                 if live_df is not None and not live_df.empty:
-                    self.replay_controller.load_data(live_df, symbol=sym, timeframe=tf, start_index=len(live_df) - 1)
+                    filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
+                    self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
                     self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                     self._update_all_views()
             else:
-                live_df = LiveDataLoader.fetch_latest_candles(sym, timeframe=tf)
-                if live_df is not None and not live_df.empty:
-                    merged = LiveDataLoader.merge_with_live(self.replay_controller._df, live_df)
-                    self.replay_controller.load_data(merged, symbol=sym, timeframe=tf, start_index=len(merged) - 1)
+                curr_df = self.replay_controller._df
+                if curr_df is not None and not curr_df.empty:
+                    filled_df = LiveDataLoader.fill_gap_to_now(curr_df, timeframe=tf, symbol=sym)
+                    self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
                     self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
                     self._update_all_views()
-                else:
-                    self._go_to_latest_date()
 
             self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=200)
             self.live_worker.candle_received.connect(self._on_live_candle_received)

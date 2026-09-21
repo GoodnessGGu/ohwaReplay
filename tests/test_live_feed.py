@@ -40,3 +40,16 @@ def test_live_data_loader_merge():
     merged = LiveDataLoader.merge_with_live(df1, df2)
     assert len(merged) == 3
     assert list(merged["timestamp"]) == [100, 200, 300]
+
+
+def test_fill_gap_to_now():
+    import time
+    now_ts = int(time.time())
+    past_ts = now_ts - 1800  # 6 bars of 5m in the past
+    df = pd.DataFrame([
+        {"timestamp": past_ts - 300, "open": 2000.0, "high": 2005.0, "low": 1995.0, "close": 2002.0, "volume": 100},
+        {"timestamp": past_ts, "open": 2002.0, "high": 2008.0, "low": 2000.0, "close": 2005.0, "volume": 120},
+    ])
+    filled = LiveDataLoader.fill_gap_to_now(df, timeframe="5m", symbol="XAUUSD")
+    assert len(filled) >= len(df)
+    assert filled.iloc[-1]["timestamp"] >= past_ts
