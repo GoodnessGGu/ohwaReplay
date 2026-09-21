@@ -618,7 +618,7 @@ class MainWindow(QMainWindow):
         # 2. If live mode is active, restart live worker
         if self.live_worker and self.live_worker.isRunning():
             self.live_worker.stop()
-            self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=350)
+            self.live_worker = LiveFeedWorker(symbol=symbol, timeframe=tf, interval_ms=200)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
             self.live_worker.start()
 
@@ -677,7 +677,7 @@ class MainWindow(QMainWindow):
                 else:
                     self._go_to_latest_date()
 
-            self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=350)
+            self.live_worker = LiveFeedWorker(symbol=sym, timeframe=tf, interval_ms=200)
             self.live_worker.candle_received.connect(self._on_live_candle_received)
             self.live_worker.start()
             logger.info(f"Switched to LIVE Mode ({sym} - {tf})")
@@ -829,6 +829,30 @@ class MainWindow(QMainWindow):
 
     def _on_live_candle_received(self, candle: Dict[str, Any]) -> None:
         """Handles live streaming tick / candle update."""
+        ts = int(candle.get("timestamp", 0))
+        # 1. Keep replay controller synced with live forming bar
+        if self.replay_controller._df is not None and not self.replay_controller._df.empty:
+            last_ts = int(self.replay_controller._df.iloc[-1]["timestamp"])
+            if ts == last_ts:
+                idx = len(self.replay_controller._df) - 1
+                self.replay_controller._df.at[idx, "high"] = float(candle["high"])
+                self.replay_controller._df.at[idx, "low"] = float(candle["low"])
+                self.replay_controller._df.at[idx, "close"] = float(candle["close"])
+                self.replay_controller._df.at[idx, "volume"] = float(candle.get("volume", 1.0))
+            elif ts > last_ts:
+                new_row = pd.DataFrame([{
+                    "timestamp": ts,
+                    "datetime": candle.get("datetime", str(datetime.utcfromtimestamp(ts))),
+                    "open": float(candle["open"]),
+                    "high": float(candle["high"]),
+                    "low": float(candle["low"]),
+                    "close": float(candle["close"]),
+                    "volume": float(candle.get("volume", 1.0)),
+                }])
+                self.replay_controller._df = pd.concat([self.replay_controller._df, new_row], ignore_index=True)
+                self.replay_controller.current_index = len(self.replay_controller._df) - 1
+                self.replay_controller.state.current_index = self.replay_controller.current_index
+
         self.chart_manager.advance_candle(candle)
         self.account_engine.process_candle(candle)
         self._update_fast_views(candle)

@@ -287,7 +287,11 @@ def get_chart_html(theme: str = "dark") -> str:
       borderVisible: false,
       wickUpColor: '#26a69a',
       wickDownColor: '#ef5350',
+      priceLineVisible: true,
+      lastValueVisible: true,
+      priceLineColor: '#2962ff',
     }});
+
 
     volumeSeries = chart.addHistogramSeries({{
       color: '#26a69a',

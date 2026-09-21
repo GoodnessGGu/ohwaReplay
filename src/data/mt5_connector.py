@@ -102,6 +102,26 @@ class MT5Connector:
         """Returns True if an active IPC connection to an MT5 terminal is established."""
         return self._connected and MT5_AVAILABLE
 
+    def auto_connect(self) -> bool:
+        """Attempts fast automatic connection to an already running MT5 terminal instance."""
+        if not MT5_AVAILABLE:
+            return False
+        if self._connected:
+            return True
+        try:
+            ok = mt5.initialize(timeout=3000)
+            if ok:
+                self._connected = True
+                self._refresh_symbol_cache()
+                self._server_utc_offset = self._compute_server_offset()
+                term_info = mt5.terminal_info()
+                company = term_info.company if term_info else "MetaTrader 5"
+                logger.info(f"MT5 auto-connected successfully to {company}.")
+                return True
+        except Exception as e:
+            logger.debug(f"MT5 auto_connect note: {e}")
+        return False
+
     def connect(
         self,
         path: Optional[str] = None,
@@ -279,6 +299,8 @@ class MT5Connector:
         Retrieves real-time broker tick quote: (bid, ask, last_price, volume).
         """
         if not self.is_connected:
+            self.auto_connect()
+        if not self.is_connected:
             return None
 
         try:
@@ -291,11 +313,20 @@ class MT5Connector:
             if tick is None:
                 return None
 
-            bid = float(tick.bid)
-            ask = float(tick.ask)
-            last_price = float(tick.last) if tick.last and tick.last > 0 else (bid + ask) / 2.0
-            volume = float(tick.volume) if tick.volume and tick.volume > 0 else 1.0
+            bid = float(tick.bid) if tick.bid else 0.0
+            ask = float(tick.ask) if tick.ask else 0.0
+            if tick.last and tick.last > 0:
+                last_price = float(tick.last)
+            elif bid > 0 and ask > 0:
+                last_price = (bid + ask) / 2.0
+            elif bid > 0:
+                last_price = bid
+            elif ask > 0:
+                last_price = ask
+            else:
+                last_price = 0.0
 
+            volume = float(tick.volume) if tick.volume and tick.volume > 0 else 1.0
             return bid, ask, last_price, volume
 
         except Exception as e:
