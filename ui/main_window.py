@@ -442,17 +442,36 @@ class MainWindow(QMainWindow):
             self.chart_manager.sync_drawings(self.drawing_store.get_all_drawings())
 
     def _open_jump_to_date_dialog(self) -> None:
-        """Opens dialog to jump/rewind replay back to a specific historical date."""
+        """Opens dialog to jump/rewind replay back to a specific historical date with technical analysis context."""
         from ui.jump_date_dialog import JumpToDateDialog
         curr_dt = self.replay_controller.state.current_datetime
-        latest_candle = self.replay_controller._df.iloc[-1].to_dict() if not self.replay_controller._df.empty else {}
-        latest_dt = latest_candle.get("datetime")
-        dlg = JumpToDateDialog(current_dt=curr_dt, latest_dt=latest_dt, parent=self)
+        earliest_dt = None
+        latest_dt = None
+        if not self.replay_controller._df.empty:
+            earliest_candle = self.replay_controller._df.iloc[0].to_dict()
+            latest_candle = self.replay_controller._df.iloc[-1].to_dict()
+            earliest_val = earliest_candle.get("datetime")
+            latest_val = latest_candle.get("datetime")
+            if isinstance(earliest_val, str):
+                earliest_dt = pd.to_datetime(earliest_val, utc=True).to_pydatetime()
+            elif isinstance(earliest_val, datetime):
+                earliest_dt = earliest_val
+            elif "timestamp" in earliest_candle:
+                earliest_dt = datetime.utcfromtimestamp(int(earliest_candle["timestamp"])).replace(tzinfo=timezone.utc)
+
+            if isinstance(latest_val, str):
+                latest_dt = pd.to_datetime(latest_val, utc=True).to_pydatetime()
+            elif isinstance(latest_val, datetime):
+                latest_dt = latest_val
+            elif "timestamp" in latest_candle:
+                latest_dt = datetime.utcfromtimestamp(int(latest_candle["timestamp"])).replace(tzinfo=timezone.utc)
+
+        dlg = JumpToDateDialog(current_dt=curr_dt, earliest_dt=earliest_dt, latest_dt=latest_dt, parent=self)
         if dlg.exec():
             target_ts = dlg.get_selected_timestamp()
             self.replay_timer.stop()
             self.replay_bar.set_playing(False)
-            self.replay_controller.jump_to_timestamp(target_ts)
+            self.replay_controller.jump_to_timestamp(target_ts, min_context=50)
             self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
             self._update_all_views()
 
@@ -476,7 +495,25 @@ class MainWindow(QMainWindow):
         self._load_asset_data(sym, tf)
 
     def _load_asset_data(self, symbol: str, timeframe: str = "5m", preserve_timestamp: Optional[int] = None) -> None:
-        """Loads historical dataset with in-memory caching for instantaneous switching."""
+        """Loads historical dataset with in-memory caching for instantaneous switching and deep history."""
+        hist_tf = Path(f"data/historical/{symbol}_{timeframe}.csv")
+        hist_1m = Path(f"data/historical/{symbol}_1m.csv")
+
+        # 1. Direct timeframe file preferred for immediate deep historical coverage
+        if hist_tf.exists():
+            try:
+                df = DataLoader.load_csv(hist_tf)
+                self.replay_controller.load_data(df, symbol=symbol, timeframe=timeframe)
+                if preserve_timestamp is not None:
+                    self.replay_controller.jump_to_timestamp(preserve_timestamp)
+                else:
+                    latest_idx = max(0, len(self.replay_controller._df) - 1)
+                    self.replay_controller.jump_to_index(latest_idx)
+                return
+            except Exception as e:
+                logger.error(f"Error loading historical {timeframe} for {symbol}: {e}")
+
+        # 2. Resampling from 1m base
         cache_key = (symbol, "1m")
         if cache_key in self._data_cache:
             df_base = self._data_cache[cache_key]
@@ -484,12 +521,9 @@ class MainWindow(QMainWindow):
             if preserve_timestamp is not None:
                 self.replay_controller.jump_to_timestamp(preserve_timestamp)
             else:
-                latest_idx = len(self.replay_controller._df) - 1
+                latest_idx = max(0, len(self.replay_controller._df) - 1)
                 self.replay_controller.jump_to_index(latest_idx)
             return
-
-        hist_1m = Path(f"data/historical/{symbol}_1m.csv")
-        hist_tf = Path(f"data/historical/{symbol}_{timeframe}.csv")
 
         if hist_1m.exists():
             try:
@@ -499,27 +533,14 @@ class MainWindow(QMainWindow):
                 if preserve_timestamp is not None:
                     self.replay_controller.jump_to_timestamp(preserve_timestamp)
                 else:
-                    latest_idx = len(self.replay_controller._df) - 1
+                    latest_idx = max(0, len(self.replay_controller._df) - 1)
                     self.replay_controller.jump_to_index(latest_idx)
                 return
             except Exception as e:
                 logger.error(f"Error loading historical 1m base for {symbol}: {e}")
 
-        if hist_tf.exists():
-            try:
-                df = DataLoader.load_csv(hist_tf)
-                self.replay_controller.load_data(df, symbol=symbol, timeframe=timeframe)
-                if preserve_timestamp is not None:
-                    self.replay_controller.jump_to_timestamp(preserve_timestamp)
-                else:
-                    latest_idx = len(df) - 1
-                    self.replay_controller.jump_to_index(latest_idx)
-                return
-            except Exception as e:
-                logger.error(f"Error loading historical {timeframe} for {symbol}: {e}")
-
-        # Fallback to sample or synthetic data
-        df_synth = SyntheticDataGenerator.generate(symbol, num_candles=1000, timeframe=timeframe, seed=42)
+        # 3. Fallback to synthetic multi-month data
+        df_synth = SyntheticDataGenerator.generate(symbol, num_candles=5000, timeframe=timeframe, seed=42)
         self.replay_controller.load_data(df_synth, symbol=symbol, timeframe=timeframe, start_index=len(df_synth) - 1)
 
     def _on_chart_ready(self) -> None:

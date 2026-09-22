@@ -218,16 +218,22 @@ class ReplayController:
         self._emit_state_change()
         return True
 
-    def jump_to_timestamp(self, timestamp: int) -> bool:
-        """Jumps to the candle at or immediately before the specified unix timestamp."""
+    def jump_to_timestamp(self, timestamp: int, min_context: int = 50) -> bool:
+        """
+        Jumps to the candle at or immediately before the specified unix timestamp.
+        If timestamp is earlier than the dataset start, it clamps to min_context
+        so that the chart always has prior candles for technical analysis.
+        """
         if self._df.empty:
             return False
 
         matching = self._df[self._df["timestamp"] <= timestamp]
         if not matching.empty:
-            return self.jump_to_index(matching.index[-1])
+            target_idx = matching.index[-1]
+            return self.jump_to_index(target_idx)
         else:
-            return self.jump_to_index(0)
+            target_idx = min(min_context, max(0, len(self._df) - 1))
+            return self.jump_to_index(target_idx)
 
     def jump_to_date(self, target_date: Union[datetime, str]) -> bool:
         """Jumps to a specific datetime."""
