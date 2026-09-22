@@ -241,3 +241,15 @@ class ChartWidget(QWebEngineView):
         border = colors.get("border_color", "#2a2e39")
         self.page().runJavaScript(f"setTheme('{theme_name}', '{bg}', '{txt}', '{grid}', '{card}', '{border}');")
 
+    def reset_price_scale(self) -> None:
+        """Forces the vertical price scale to auto-scale mode, fitting current candle prices."""
+        if not self._is_loaded:
+            return
+        self.page().runJavaScript("resetPriceScale();")
+
+    def reset_view(self) -> None:
+        """Resets both vertical price scale and horizontal time scale to optimal default framing."""
+        if not self._is_loaded:
+            return
+        self.page().runJavaScript("resetView();")
+

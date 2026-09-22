@@ -386,9 +386,40 @@ def get_chart_html(theme: str = "dark") -> str:
       }});
     }}
 
+    try {{
+      chart.priceScale('right').applyOptions({{ autoScale: true }});
+    }} catch (psErr) {{
+      try {{
+        chart.applyOptions({{ rightPriceScale: {{ autoScale: true, minimumWidth: 80 }} }});
+      }} catch (e) {{}}
+    }}
+
     const wm = document.getElementById('watermark');
     if (wm) {{
       wm.innerText = symbol + ' • TRADING REPLAY LAB';
+    }}
+    scheduleRender();
+  }}
+
+  function resetPriceScale() {{
+    try {{
+      chart.priceScale('right').applyOptions({{ autoScale: true }});
+    }} catch (psErr) {{
+      try {{
+        chart.applyOptions({{ rightPriceScale: {{ autoScale: true, minimumWidth: 80 }} }});
+      }} catch (e) {{}}
+    }}
+    scheduleRender();
+  }}
+
+  function resetView() {{
+    resetPriceScale();
+    if (currentCandles && currentCandles.length > 0) {{
+      const n = currentCandles.length;
+      const span = 110;
+      try {{
+        chart.timeScale().setVisibleLogicalRange({{ from: Math.max(0, n - span), to: n + 10 }});
+      }} catch (e) {{}}
     }}
     scheduleRender();
   }}
@@ -398,6 +429,14 @@ def get_chart_html(theme: str = "dark") -> str:
     candleSeries.setData(candleData || []);
     if (volumeData && volumeData.length > 0) {{
       volumeSeries.setData(volumeData);
+    }}
+
+    try {{
+      chart.priceScale('right').applyOptions({{ autoScale: true }});
+    }} catch (psErr) {{
+      try {{
+        chart.applyOptions({{ rightPriceScale: {{ autoScale: true, minimumWidth: 80 }} }});
+      }} catch (e) {{}}
     }}
 
     const n = currentCandles.length;
@@ -2628,6 +2667,11 @@ def get_chart_html(theme: str = "dark") -> str:
     }});
 
     container.addEventListener('dblclick', (e) => {{
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x >= container.clientWidth - 85 || (activeTool === 'CURSOR' && !selectedDrawingId)) {{
+        resetPriceScale();
+      }}
       if (activeTool === 'PATH' && tempDrawingPoints.length >= 2) {{
         finishCreation(tempDrawingPoints);
       }}

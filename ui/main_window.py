@@ -334,6 +334,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self._switch_to_tab_index(1))
         QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self._switch_to_tab_index(2))
         QShortcut(QKeySequence("Ctrl+4"), self, activated=lambda: self._switch_to_tab_index(3))
+        QShortcut(QKeySequence("Alt+R"), self, activated=self.chart_widget.reset_view)
+        QShortcut(QKeySequence("Ctrl+R"), self, activated=self.chart_widget.reset_price_scale)
 
         # Drawing shortcuts (Left Toolbar)
         QShortcut(QKeySequence("T"), self, activated=lambda: self.drawing_toolbar.set_active_tool("TRENDLINE"))
@@ -652,6 +654,7 @@ class MainWindow(QMainWindow):
             self.live_worker.start()
 
         self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+        self.chart_widget.reset_price_scale()
         self._update_all_views()
 
     def _on_timeframe_changed(self, tf: str) -> None:
@@ -666,6 +669,7 @@ class MainWindow(QMainWindow):
                 filled_df = LiveDataLoader.fill_gap_to_now(live_df, timeframe=tf, symbol=sym)
                 self.replay_controller.load_data(filled_df, symbol=sym, timeframe=tf, start_index=len(filled_df) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+                self.chart_widget.reset_price_scale()
                 self._update_all_views()
             else:
                 success = self.replay_controller.set_timeframe(tf)
@@ -673,12 +677,14 @@ class MainWindow(QMainWindow):
                     filled = LiveDataLoader.fill_gap_to_now(self.replay_controller._df, timeframe=tf, symbol=sym)
                     self.replay_controller.load_data(filled, symbol=sym, timeframe=tf, start_index=len(filled) - 1)
                 self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+                self.chart_widget.reset_price_scale()
                 self._update_all_views()
             if self.live_worker:
                 self.live_worker.timeframe = tf
         else:
             self.replay_controller.set_timeframe(tf)
             self.chart_manager.load_dataset(self.replay_controller.get_visible_candles())
+            self.chart_widget.reset_price_scale()
             self._update_all_views()
 
     def _on_mode_changed(self, mode: str) -> None:
@@ -799,6 +805,7 @@ class MainWindow(QMainWindow):
         vis_candles = self.replay_controller.get_visible_candles()
         self.chart_manager.load_dataset(vis_candles, visible_range=target_tab.visible_range)
         self.chart_manager.sync_all_indicators(vis_candles)
+        self.chart_widget.reset_price_scale()
 
         # 8. Set live mode vs replay mode
         if target_tab.mode == "live":
@@ -857,6 +864,7 @@ class MainWindow(QMainWindow):
                 vis_candles = self.replay_controller.get_visible_candles()
                 self.chart_manager.load_dataset(vis_candles, visible_range=target_tab.visible_range)
                 self.chart_manager.sync_all_indicators(vis_candles)
+                self.chart_widget.reset_price_scale()
                 self._update_all_views()
         else:
             if index < self.current_tab_index:
