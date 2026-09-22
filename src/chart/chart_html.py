@@ -582,37 +582,51 @@ def get_chart_html(theme: str = "dark") -> str:
   // Safe Coordinate Mapping Helpers (Rock-solid multi-timeframe anchoring)
   function safeTimeToCoordinate(time) {{
     if (time === null || time === undefined || isNaN(time)) return null;
-    const coord = chart.timeScale().timeToCoordinate(time);
-    if (coord !== null && !isNaN(coord)) return coord;
+
+    let t = Number(time);
+    if (t > 1e11) t = Math.floor(t / 1000);
+
+    const coord = chart.timeScale().timeToCoordinate(t);
+    if (coord !== null && !isNaN(coord) && isFinite(coord)) return coord;
 
     // Fractional bar index interpolation against loaded candle series
     if (currentCandles && currentCandles.length > 0) {{
       const n = currentCandles.length;
       if (n === 1) {{
-        return chart.timeScale().logicalToCoordinate(0);
+        const c0 = chart.timeScale().logicalToCoordinate(0);
+        return (c0 !== null && isFinite(c0)) ? c0 : null;
       }}
 
+      // Calculate typical bar duration
+      let dt = currentCandles[1].time - currentCandles[0].time;
+      if (dt <= 0 && n >= 3) {{
+        dt = currentCandles[n - 1].time - currentCandles[n - 2].time;
+      }}
+      if (dt <= 0) dt = 60;
+
       // If before first candle in loaded dataset
-      if (time <= currentCandles[0].time) {{
-        const dt = currentCandles[1].time - currentCandles[0].time;
-        const logical = (dt > 0) ? (time - currentCandles[0].time) / dt : 0;
-        const c = chart.timeScale().logicalToCoordinate(logical);
-        if (c !== null && !isNaN(c)) return c;
+      if (t <= currentCandles[0].time) {{
+        const logical = (t - currentCandles[0].time) / dt;
+        const clampedLogical = Math.max(-500, logical);
+        const c = chart.timeScale().logicalToCoordinate(clampedLogical);
+        if (c !== null && !isNaN(c) && isFinite(c)) return c;
       }}
 
       // If after last candle in loaded dataset
-      if (time >= currentCandles[n - 1].time) {{
-        const dt = currentCandles[n - 1].time - currentCandles[n - 2].time;
-        const logical = (dt > 0) ? (n - 1) + (time - currentCandles[n - 1].time) / dt : (n - 1);
-        const c = chart.timeScale().logicalToCoordinate(logical);
-        if (c !== null && !isNaN(c)) return c;
+      if (t >= currentCandles[n - 1].time) {{
+        const endDt = (n >= 2) ? (currentCandles[n - 1].time - currentCandles[n - 2].time) : dt;
+        const validDt = endDt > 0 ? endDt : dt;
+        const logical = (n - 1) + (t - currentCandles[n - 1].time) / validDt;
+        const clampedLogical = Math.min(n + 500, logical);
+        const c = chart.timeScale().logicalToCoordinate(clampedLogical);
+        if (c !== null && !isNaN(c) && isFinite(c)) return c;
       }}
 
       // Binary search between two bounding candles
       let low = 0, high = n - 1;
       while (low <= high) {{
         const mid = (low + high) >> 1;
-        if (currentCandles[mid].time <= time) {{
+        if (currentCandles[mid].time <= t) {{
           low = mid + 1;
         }} else {{
           high = mid - 1;
@@ -621,40 +635,41 @@ def get_chart_html(theme: str = "dark") -> str:
       const idx = Math.max(0, Math.min(n - 2, high));
       const t1 = currentCandles[idx].time;
       const t2 = currentCandles[idx + 1].time;
-      const frac = (t2 > t1) ? (time - t1) / (t2 - t1) : 0;
+      const frac = (t2 > t1) ? (t - t1) / (t2 - t1) : 0;
       const logical = idx + frac;
       const c = chart.timeScale().logicalToCoordinate(logical);
-      if (c !== null && !isNaN(c)) return c;
+      if (c !== null && !isNaN(c) && isFinite(c)) return c;
     }}
 
     return null;
   }}
 
   function safePriceToCoordinate(price) {{
-    if (price === null || price === undefined || isNaN(price)) return null;
+    if (price === null || price === undefined || isNaN(price) || !isFinite(price)) return null;
     const coord = candleSeries.priceToCoordinate(price);
-    if (coord !== null && !isNaN(coord)) return coord;
+    if (coord !== null && !isNaN(coord) && isFinite(coord)) return coord;
     return null;
   }}
 
   function safeCoordinateToTime(x) {{
+    if (x === null || x === undefined || !isFinite(x)) return null;
     const t = chart.timeScale().coordinateToTime(x);
-    if (t !== null && !isNaN(t)) return t;
+    if (t !== null && !isNaN(t) && isFinite(t)) return t;
 
     if (currentCandles && currentCandles.length > 0) {{
       const n = currentCandles.length;
       const logical = chart.timeScale().coordinateToLogical(x);
-      if (logical !== null && !isNaN(logical)) {{
+      if (logical !== null && !isNaN(logical) && isFinite(logical)) {{
         if (n === 1) return currentCandles[0].time;
         if (logical <= 0) {{
-          const dt = currentCandles[1].time - currentCandles[0].time;
+          const dt = Math.max(60, currentCandles[1].time - currentCandles[0].time);
           return Math.round(currentCandles[0].time + logical * dt);
         }}
         if (logical >= n - 1) {{
-          const dt = currentCandles[n - 1].time - currentCandles[n - 2].time;
+          const dt = Math.max(60, currentCandles[n - 1].time - currentCandles[n - 2].time);
           return Math.round(currentCandles[n - 1].time + (logical - (n - 1)) * dt);
         }}
-        const i = Math.floor(logical);
+        const i = Math.max(0, Math.min(n - 2, Math.floor(logical)));
         const frac = logical - i;
         const dt = currentCandles[i + 1].time - currentCandles[i].time;
         return Math.round(currentCandles[i].time + frac * dt);
@@ -664,8 +679,9 @@ def get_chart_html(theme: str = "dark") -> str:
   }}
 
   function safeCoordinateToPrice(y) {{
+    if (y === null || y === undefined || !isFinite(y)) return null;
     const p = candleSeries.coordinateToPrice(y);
-    if (p !== null && !isNaN(p)) return p;
+    if (p !== null && !isNaN(p) && isFinite(p)) return p;
     return null;
   }}
 
@@ -1397,6 +1413,8 @@ def get_chart_html(theme: str = "dark") -> str:
             x1 = 100;
             x2 = 260;
           }}
+          if (!isFinite(x1)) x1 = 100;
+          if (!isFinite(x2)) x2 = x1 + 160;
 
           const minX = Math.min(x1, x2);
           const maxX = Math.max(x1, x2);
@@ -2119,6 +2137,8 @@ def get_chart_html(theme: str = "dark") -> str:
           x1 = 100;
           x2 = 260;
         }}
+        if (!isFinite(x1)) x1 = 100;
+        if (!isFinite(x2)) x2 = x1 + 160;
 
         const minX = Math.min(x1, x2);
         const maxX = Math.max(x1, x2);
@@ -2231,6 +2251,13 @@ def get_chart_html(theme: str = "dark") -> str:
         let x2 = safeTimeToCoordinate(tEnd);
         if (x1 === null && x2 !== null) x1 = x2 - 160;
         if (x2 === null && x1 !== null) x2 = x1 + 160;
+        if (x1 === null && x2 === null) {{
+          x1 = 100;
+          x2 = 260;
+        }}
+        if (!isFinite(x1)) x1 = 100;
+        if (!isFinite(x2)) x2 = x1 + 160;
+
         if (x1 !== null && x2 !== null) {{
           const minX = Math.min(x1, x2);
           const maxX = Math.max(x1, x2);
