@@ -561,23 +561,54 @@ def get_chart_html(theme: str = "dark") -> str:
     scheduleRender();
   }}
 
-  // Safe Coordinate Mapping Helpers
+  // Safe Coordinate Mapping Helpers (Rock-solid multi-timeframe anchoring)
   function safeTimeToCoordinate(time) {{
     if (time === null || time === undefined || isNaN(time)) return null;
     const coord = chart.timeScale().timeToCoordinate(time);
     if (coord !== null && !isNaN(coord)) return coord;
 
-    try {{
-      const tr = chart.timeScale().getVisibleRange();
-      if (tr && tr.from && tr.to && tr.to !== tr.from) {{
-        const cFrom = chart.timeScale().timeToCoordinate(tr.from);
-        const cTo = chart.timeScale().timeToCoordinate(tr.to);
-        if (cFrom !== null && cTo !== null && cTo !== cFrom) {{
-          const tPerPx = (tr.to - tr.from) / (cTo - cFrom);
-          return cFrom + (time - tr.from) / tPerPx;
+    // Fractional bar index interpolation against loaded candle series
+    if (currentCandles && currentCandles.length > 0) {{
+      const n = currentCandles.length;
+      if (n === 1) {{
+        return chart.timeScale().logicalToCoordinate(0);
+      }}
+
+      // If before first candle in loaded dataset
+      if (time <= currentCandles[0].time) {{
+        const dt = currentCandles[1].time - currentCandles[0].time;
+        const logical = (dt > 0) ? (time - currentCandles[0].time) / dt : 0;
+        const c = chart.timeScale().logicalToCoordinate(logical);
+        if (c !== null && !isNaN(c)) return c;
+      }}
+
+      // If after last candle in loaded dataset
+      if (time >= currentCandles[n - 1].time) {{
+        const dt = currentCandles[n - 1].time - currentCandles[n - 2].time;
+        const logical = (dt > 0) ? (n - 1) + (time - currentCandles[n - 1].time) / dt : (n - 1);
+        const c = chart.timeScale().logicalToCoordinate(logical);
+        if (c !== null && !isNaN(c)) return c;
+      }}
+
+      // Binary search between two bounding candles
+      let low = 0, high = n - 1;
+      while (low <= high) {{
+        const mid = (low + high) >> 1;
+        if (currentCandles[mid].time <= time) {{
+          low = mid + 1;
+        }} else {{
+          high = mid - 1;
         }}
       }}
-    }} catch (e) {{}}
+      const idx = Math.max(0, Math.min(n - 2, high));
+      const t1 = currentCandles[idx].time;
+      const t2 = currentCandles[idx + 1].time;
+      const frac = (t2 > t1) ? (time - t1) / (t2 - t1) : 0;
+      const logical = idx + frac;
+      const c = chart.timeScale().logicalToCoordinate(logical);
+      if (c !== null && !isNaN(c)) return c;
+    }}
+
     return null;
   }}
 
@@ -592,17 +623,25 @@ def get_chart_html(theme: str = "dark") -> str:
     const t = chart.timeScale().coordinateToTime(x);
     if (t !== null && !isNaN(t)) return t;
 
-    try {{
-      const tr = chart.timeScale().getVisibleRange();
-      if (tr && tr.from && tr.to && tr.to !== tr.from) {{
-        const cFrom = chart.timeScale().timeToCoordinate(tr.from);
-        const cTo = chart.timeScale().timeToCoordinate(tr.to);
-        if (cFrom !== null && cTo !== null && cTo !== cFrom) {{
-          const tPerPx = (tr.to - tr.from) / (cTo - cFrom);
-          return Math.round(tr.from + (x - cFrom) * tPerPx);
+    if (currentCandles && currentCandles.length > 0) {{
+      const n = currentCandles.length;
+      const logical = chart.timeScale().coordinateToLogical(x);
+      if (logical !== null && !isNaN(logical)) {{
+        if (n === 1) return currentCandles[0].time;
+        if (logical <= 0) {{
+          const dt = currentCandles[1].time - currentCandles[0].time;
+          return Math.round(currentCandles[0].time + logical * dt);
         }}
+        if (logical >= n - 1) {{
+          const dt = currentCandles[n - 1].time - currentCandles[n - 2].time;
+          return Math.round(currentCandles[n - 1].time + (logical - (n - 1)) * dt);
+        }}
+        const i = Math.floor(logical);
+        const frac = logical - i;
+        const dt = currentCandles[i + 1].time - currentCandles[i].time;
+        return Math.round(currentCandles[i].time + frac * dt);
       }}
-    }} catch (e) {{}}
+    }}
     return Math.floor(Date.now() / 1000);
   }}
 
@@ -919,7 +958,7 @@ def get_chart_html(theme: str = "dark") -> str:
 
       ctx.strokeStyle = isSelected ? '#ffeb3b' : (style.color || '#2962ff');
       ctx.fillStyle = style.fill_color || 'rgba(41, 98, 255, 0.25)';
-      ctx.lineWidth = (style.line_width !== undefined ? Number(style.line_width) : 1.5) + (isSelected ? 0.8 : 0);
+      ctx.lineWidth = (style.line_width !== undefined ? Number(style.line_width) : 1.0) + (isSelected ? 0.5 : 0);
       
       if (style.line_style === 'dashed') ctx.setLineDash([6, 6]);
       else if (style.line_style === 'dotted') ctx.setLineDash([2, 3]);
@@ -1515,7 +1554,7 @@ def get_chart_html(theme: str = "dark") -> str:
       ctx.save();
       ctx.strokeStyle = '#2962ff';
       ctx.fillStyle = 'rgba(41, 98, 255, 0.25)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.0;
       ctx.setLineDash([4, 4]);
 
       const x1 = safeTimeToCoordinate(tempDrawingPoints[0].time);
@@ -1599,11 +1638,11 @@ def get_chart_html(theme: str = "dark") -> str:
   function renderHandle(x, y) {{
     ctx.save();
     ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.strokeStyle = '#2962ff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.2;
     ctx.stroke();
     ctx.restore();
   }}

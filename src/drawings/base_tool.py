@@ -32,7 +32,7 @@ class DrawingPoint:
 class DrawingStyle:
     """Styling properties for visual chart drawings."""
     color: str = "#2962ff"
-    line_width: int = 2
+    line_width: int = 1
     line_style: str = "solid"  # solid, dashed, dotted
     fill_color: str = "rgba(41, 98, 255, 0.2)"
     text_color: str = "#ffffff"
@@ -54,7 +54,7 @@ class DrawingStyle:
     def from_dict(cls, d: Dict[str, Any]) -> "DrawingStyle":
         return cls(
             color=d.get("color", "#2962ff"),
-            line_width=int(d.get("line_width", 2)),
+            line_width=int(d.get("line_width", 1)),
             line_style=d.get("line_style", "solid"),
             fill_color=d.get("fill_color", "rgba(41, 98, 255, 0.2)"),
             text_color=d.get("text_color", "#ffffff"),
