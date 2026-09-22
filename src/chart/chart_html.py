@@ -129,6 +129,20 @@ def get_chart_html(theme: str = "dark") -> str:
     color: #848e9c;
     font-weight: 600;
   }}
+  #prop-drag-handle {{
+    cursor: grab;
+    color: #848e9c;
+    padding: 2px 4px;
+    user-select: none;
+    font-size: 13px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  #prop-drag-handle:hover {{
+    color: #2962ff;
+  }}
 </style>
 </head>
 <body>
@@ -138,6 +152,7 @@ def get_chart_html(theme: str = "dark") -> str:
 
   <!-- Floating Drawing Property Toolbar -->
   <div id="drawing-prop-toolbar">
+    <div id="prop-drag-handle" title="Drag to move toolbar">⠿</div>
     <!-- Standard Drawing Controls (Rectangles, Lines, etc.) -->
     <div id="prop-standard-controls" style="display:flex;align-items:center;gap:6px;">
       <span class="prop-label">Line:</span>
@@ -217,6 +232,9 @@ def get_chart_html(theme: str = "dark") -> str:
   let hoveredDrawingId = null;
   let draggingHandle = null;
   let isShiftPressed = false;
+  let toolbarDragOffset = {{ x: 0, y: 0 }};
+  let isDraggingToolbar = false;
+  let lastSelectedDrawingId = null;
 
   const container = document.getElementById('chart-container');
   const canvas = document.getElementById('drawing-canvas');
@@ -1649,9 +1667,14 @@ def get_chart_html(theme: str = "dark") -> str:
 
   // Floating Property Toolbar Position & Sync
   function updatePropToolbarPosition() {{
-    if (!selectedDrawingId) {{
+    if (!selectedDrawingId || isCreatingDrawing || draggingHandle) {{
       propToolbar.style.display = 'none';
       return;
+    }}
+
+    if (lastSelectedDrawingId !== selectedDrawingId) {{
+      toolbarDragOffset = {{ x: 0, y: 0 }};
+      lastSelectedDrawingId = selectedDrawingId;
     }}
 
     const targetD = drawings.find(d => d.id === selectedDrawingId);
@@ -1660,28 +1683,50 @@ def get_chart_html(theme: str = "dark") -> str:
       return;
     }}
 
-    // Find topmost coordinate
-    let topX = 0, topY = 99999;
+    // Find bounding box in pixel coordinates across all points
+    let minX = 99999, maxX = -99999, minY = 99999, maxY = -99999;
     targetD.points.forEach(p => {{
       const px = safeTimeToCoordinate(p.time);
       const py = safePriceToCoordinate(p.price);
       if (px !== null && py !== null) {{
-        if (py < topY) {{
-          topY = py;
-          topX = px;
-        }}
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
       }}
     }});
 
-    if (topY === 99999) {{
+    if (minY === 99999) {{
       propToolbar.style.display = 'none';
       return;
     }}
 
     const isPos = (targetD.type === 'LONG_POSITION' || targetD.type === 'SHORT_POSITION');
-    const tbWidth = isPos ? 540 : 440;
-    const posX = Math.max(10, Math.min(container.clientWidth - tbWidth, topX - 100));
-    const posY = Math.max(10, topY - 45);
+    const tbWidth = propToolbar.offsetWidth || (isPos ? 540 : 440);
+    const tbHeight = propToolbar.offsetHeight || 34;
+
+    const centerX = (minX + maxX) / 2;
+    const GAP = 30; // Generous clearance so toolbar never covers handles or drawing
+
+    let posX = centerX - (tbWidth / 2);
+    let posY = minY - tbHeight - GAP;
+
+    // If too close to the top of the chart, flip comfortably below the drawing
+    if (posY < 12) {{
+      if (maxY + GAP + tbHeight <= container.clientHeight - 10) {{
+        posY = maxY + GAP;
+      }} else {{
+        posY = 12;
+      }}
+    }}
+
+    // Apply manual drag offset if user repositioned it
+    posX += toolbarDragOffset.x;
+    posY += toolbarDragOffset.y;
+
+    // Clamp inside visible chart container
+    posX = Math.max(10, Math.min(container.clientWidth - tbWidth - 10, posX));
+    posY = Math.max(10, Math.min(container.clientHeight - tbHeight - 10, posY));
 
     propToolbar.style.left = posX + 'px';
     propToolbar.style.top = posY + 'px';
@@ -1769,6 +1814,42 @@ def get_chart_html(theme: str = "dark") -> str:
         e.stopPropagation();
       }});
     }});
+
+    const dragHandle = document.getElementById('prop-drag-handle');
+    if (dragHandle) {{
+      let dragStartMouse = {{ x: 0, y: 0 }};
+      let dragStartOffset = {{ x: 0, y: 0 }};
+
+      dragHandle.addEventListener('mousedown', (e) => {{
+        e.stopPropagation();
+        e.preventDefault();
+        isDraggingToolbar = true;
+        dragStartMouse = {{ x: e.clientX, y: e.clientY }};
+        dragStartOffset = {{ x: toolbarDragOffset.x, y: toolbarDragOffset.y }};
+        dragHandle.style.cursor = 'grabbing';
+
+        const onMouseMove = (moveEvt) => {{
+          if (!isDraggingToolbar) return;
+          const dx = moveEvt.clientX - dragStartMouse.x;
+          const dy = moveEvt.clientY - dragStartMouse.y;
+          toolbarDragOffset = {{
+            x: dragStartOffset.x + dx,
+            y: dragStartOffset.y + dy
+          }};
+          updatePropToolbarPosition();
+        }};
+
+        const onMouseUp = () => {{
+          isDraggingToolbar = false;
+          if (dragHandle) dragHandle.style.cursor = 'grab';
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+        }};
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      }});
+    }}
 
     const outlineColorInput = document.getElementById('prop-outline-color');
     const lineWidthSelect = document.getElementById('prop-line-width');
