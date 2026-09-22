@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
 
         # 1. Load config
         self.config = load_yaml_config("config.yaml")
-        self.current_theme = self.config.get("appearance", {}).get("theme", "Dark Charcoal")
+        self.current_theme = self.config.get("appearance", {}).get("theme", "OLED Black")
 
         # 2. Core services
         self.bus = event_bus

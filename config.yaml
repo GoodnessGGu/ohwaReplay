@@ -49,16 +49,20 @@ replay:
   speed_options: [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
   timer_interval_ms: 1000
 
+appearance:
+  theme: "OLED Black"
+
 chart:
-  theme: "dark"
-  bg_color: "#131722"
-  grid_color: "#1e222d"
-  candle_up_color: "#26a69a"
-  candle_down_color: "#ef5350"
-  wick_up_color: "#26a69a"
-  wick_down_color: "#ef5350"
-  volume_up_color: "rgba(38, 166, 154, 0.4)"
-  volume_down_color: "rgba(239, 83, 80, 0.4)"
+  theme: "oled"
+  bg_color: "#000000"
+  grid_color: "#121212"
+  candle_up_color: "#00e676"
+  candle_down_color: "#ff5252"
+  wick_up_color: "#00e676"
+  wick_down_color: "#ff5252"
+  volume_visible: false
+  volume_up_color: "rgba(0, 230, 118, 0.4)"
+  volume_down_color: "rgba(255, 82, 82, 0.4)"
 
 notifications:
   sound_enabled: true

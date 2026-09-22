@@ -35,7 +35,7 @@ class SettingsDialog(QDialog):
 
         self.combo_theme = QComboBox()
         self.combo_theme.addItems(ThemeManager.get_theme_names())
-        cur_theme = self.settings.get("theme", "Dark Charcoal")
+        cur_theme = self.settings.get("theme", "OLED Black")
         idx = self.combo_theme.findText(cur_theme)
         if idx >= 0:
             self.combo_theme.setCurrentIndex(idx)

@@ -19,7 +19,7 @@ class ChartManager:
         self.bus = event_bus_instance or event_bus
         self.active_indicators: List[Dict[str, Any]] = []
         self._rendered_indicator_ids = set()
-        self.volume_visible: bool = True
+        self.volume_visible: bool = False
         self.current_df: Optional[pd.DataFrame] = None
 
     def load_dataset(self, df_visible: pd.DataFrame, max_initial_candles: int = 5000, visible_range: Optional[Dict[str, Any]] = None) -> None:

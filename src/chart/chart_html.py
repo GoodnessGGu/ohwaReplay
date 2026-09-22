@@ -301,6 +301,7 @@ def get_chart_html(theme: str = "dark") -> str:
         top: 0.8,
         bottom: 0,
       }},
+      visible: false,
     }});
 
     window.addEventListener('resize', () => {{

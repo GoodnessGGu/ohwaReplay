@@ -138,7 +138,7 @@ class MainToolBar(QToolBar):
 
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(ThemeManager.get_theme_names())
-        self.theme_combo.setCurrentText("Dark Charcoal")
+        self.theme_combo.setCurrentText("OLED Black")
         self.theme_combo.setStyleSheet("font-weight: bold; padding: 3px 8px;")
         self.theme_combo.currentTextChanged.connect(self.theme_changed.emit)
         self.addWidget(self.theme_combo)

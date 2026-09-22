@@ -107,7 +107,7 @@ class ThemeManager:
 
     @classmethod
     def get_theme_data(cls, theme_name: str) -> Dict[str, str]:
-        return cls.THEMES.get(theme_name, cls.THEMES["Dark Charcoal"])
+        return cls.THEMES.get(theme_name, cls.THEMES["OLED Black"])
 
     @classmethod
     def generate_qss(cls, theme_name: str) -> str:
