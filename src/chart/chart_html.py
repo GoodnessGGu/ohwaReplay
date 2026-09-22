@@ -1209,11 +1209,10 @@ def get_chart_html(theme: str = "dark") -> str:
 
           let x1 = safeTimeToCoordinate(tStart);
           let x2 = safeTimeToCoordinate(tEnd);
-          if (x1 === null && x2 !== null) x1 = x2 - 140;
-          if (x2 === null && x1 !== null) x2 = x1 + 140;
-          if (x1 === null && x2 === null) {{
-            x1 = 100;
-            x2 = 250;
+          if (x1 === null || x2 === null || !isFinite(x1) || !isFinite(x2)) {{
+            if (x1 !== null && isFinite(x1)) x2 = x1 + 140;
+            else if (x2 !== null && isFinite(x2)) x1 = x2 - 140;
+            else return;
           }}
 
           const minX = Math.min(x1, x2);
@@ -1407,14 +1406,11 @@ def get_chart_html(theme: str = "dark") -> str:
           let x1 = safeTimeToCoordinate(tStart);
           let x2 = safeTimeToCoordinate(tEnd);
 
-          if (x1 === null && x2 !== null) x1 = x2 - 160;
-          if (x2 === null && x1 !== null) x2 = x1 + 160;
-          if (x1 === null && x2 === null) {{
-            x1 = 100;
-            x2 = 260;
+          if (x1 === null || x2 === null || !isFinite(x1) || !isFinite(x2)) {{
+            if (x1 !== null && isFinite(x1)) x2 = x1 + 160;
+            else if (x2 !== null && isFinite(x2)) x1 = x2 - 160;
+            else return;
           }}
-          if (!isFinite(x1)) x1 = 100;
-          if (!isFinite(x2)) x2 = x1 + 160;
 
           const minX = Math.min(x1, x2);
           const maxX = Math.max(x1, x2);
@@ -1429,10 +1425,9 @@ def get_chart_html(theme: str = "dark") -> str:
           let ySL = safePriceToCoordinate(slPrice);
           let yTP = safePriceToCoordinate(tpPrice);
 
-          // Clamped bounds so boxes never vanish
-          if (yEntry === null) yEntry = container.clientHeight / 2;
-          if (ySL === null) ySL = isLong ? container.clientHeight + 100 : -100;
-          if (yTP === null) yTP = isLong ? -100 : container.clientHeight + 100;
+          if (yEntry === null || ySL === null || yTP === null || !isFinite(yEntry) || !isFinite(ySL) || !isFinite(yTP)) {{
+            return;
+          }}
 
           // Compute trade progression & candle fill simulation
           let tpHit = false, slHit = false, hitTime = null;
@@ -2131,14 +2126,11 @@ def get_chart_html(theme: str = "dark") -> str:
 
         let x1 = safeTimeToCoordinate(tStart);
         let x2 = safeTimeToCoordinate(tEnd);
-        if (x1 === null && x2 !== null) x1 = x2 - 160;
-        if (x2 === null && x1 !== null) x2 = x1 + 160;
-        if (x1 === null && x2 === null) {{
-          x1 = 100;
-          x2 = 260;
+        if (x1 === null || x2 === null || !isFinite(x1) || !isFinite(x2)) {{
+          if (x1 !== null && isFinite(x1)) x2 = x1 + 160;
+          else if (x2 !== null && isFinite(x2)) x1 = x2 - 160;
+          else continue;
         }}
-        if (!isFinite(x1)) x1 = 100;
-        if (!isFinite(x2)) x2 = x1 + 160;
 
         const minX = Math.min(x1, x2);
         const maxX = Math.max(x1, x2);
@@ -2148,7 +2140,7 @@ def get_chart_html(theme: str = "dark") -> str:
         const ySL = safePriceToCoordinate(d.points[1].price);
         const yTP = safePriceToCoordinate(d.points[2].price);
 
-        if (yEntry !== null && ySL !== null && yTP !== null) {{
+        if (yEntry !== null && ySL !== null && yTP !== null && isFinite(yEntry) && isFinite(ySL) && isFinite(yTP)) {{
           const posHandles = [
             {{ name: 'entry', hx: midX, hy: yEntry }},
             {{ name: 'tp',    hx: midX, hy: yTP }},
@@ -2249,26 +2241,21 @@ def get_chart_html(theme: str = "dark") -> str:
         const tEnd = (d.points.length >= 4 && d.points[3].time) ? d.points[3].time : (tStart + 14400);
         let x1 = safeTimeToCoordinate(tStart);
         let x2 = safeTimeToCoordinate(tEnd);
-        if (x1 === null && x2 !== null) x1 = x2 - 160;
-        if (x2 === null && x1 !== null) x2 = x1 + 160;
-        if (x1 === null && x2 === null) {{
-          x1 = 100;
-          x2 = 260;
+        if (x1 === null || x2 === null || !isFinite(x1) || !isFinite(x2)) {{
+          if (x1 !== null && isFinite(x1)) x2 = x1 + 160;
+          else if (x2 !== null && isFinite(x2)) x1 = x2 - 160;
+          else continue;
         }}
-        if (!isFinite(x1)) x1 = 100;
-        if (!isFinite(x2)) x2 = x1 + 160;
 
-        if (x1 !== null && x2 !== null) {{
-          const minX = Math.min(x1, x2);
-          const maxX = Math.max(x1, x2);
-          const yEntry = safePriceToCoordinate(d.points[0].price);
-          const ySL = safePriceToCoordinate(d.points[1].price);
-          const yTP = safePriceToCoordinate(d.points[2].price);
-          if (yEntry !== null && ySL !== null && yTP !== null) {{
-            const minY = Math.min(yEntry, ySL, yTP);
-            const maxY = Math.max(yEntry, ySL, yTP);
-            if (x >= minX && x <= maxX && y >= minY && y <= maxY) return d;
-          }}
+        const minX = Math.min(x1, x2);
+        const maxX = Math.max(x1, x2);
+        const yEntry = safePriceToCoordinate(d.points[0].price);
+        const ySL = safePriceToCoordinate(d.points[1].price);
+        const yTP = safePriceToCoordinate(d.points[2].price);
+        if (yEntry !== null && ySL !== null && yTP !== null && isFinite(yEntry) && isFinite(ySL) && isFinite(yTP)) {{
+          const minY = Math.min(yEntry, ySL, yTP);
+          const maxY = Math.max(yEntry, ySL, yTP);
+          if (x >= minX && x <= maxX && y >= minY && y <= maxY) return d;
         }}
       }}
       else if (d.points.length >= 2) {{
