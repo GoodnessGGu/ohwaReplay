@@ -2,7 +2,9 @@ from typing import Optional
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -18,6 +20,65 @@ from src.core.risk import RiskCalculator
 from src.utils.constants import Direction, OrderType
 
 
+class SetBalanceDialog(QDialog):
+    """Quick dialog to configure or reset starting account capital."""
+
+    def __init__(self, current_balance: float = 10000.0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⚙ Set Starting Capital / Balance")
+        self.setMinimumWidth(320)
+        self.init_ui(current_balance)
+
+    def init_ui(self, current_balance: float) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        lbl = QLabel("Configure starting balance for retest & replay:")
+        lbl.setStyleSheet("color: #848e9c; font-size: 12px;")
+        layout.addWidget(lbl)
+
+        form = QFormLayout()
+        self.spin_bal = QDoubleSpinBox()
+        self.spin_bal.setRange(100.0, 10000000.0)
+        self.spin_bal.setValue(current_balance)
+        self.spin_bal.setPrefix("$ ")
+        self.spin_bal.setSingleStep(1000.0)
+        self.spin_bal.setStyleSheet("font-size: 14px; font-weight: bold; padding: 4px;")
+        form.addRow("Starting Balance:", self.spin_bal)
+
+        self.combo_preset = QComboBox()
+        self.combo_preset.addItems(["Choose Preset...", "$1,000", "$5,000", "$10,000", "$25,000", "$50,000", "$100,000", "$200,000"])
+        self.combo_preset.currentIndexChanged.connect(self._on_preset)
+        form.addRow("Quick Presets:", self.combo_preset)
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_apply = QPushButton("Apply & Reset Balance")
+        btn_apply.setStyleSheet("background-color: #2962ff; color: #ffffff; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        btn_apply.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_apply)
+        btn_box.addWidget(btn_cancel)
+        layout.addLayout(btn_box)
+
+    def _on_preset(self, idx: int) -> None:
+        presets = {
+            1: 1000.0,
+            2: 5000.0,
+            3: 10000.0,
+            4: 25000.0,
+            5: 50000.0,
+            6: 100000.0,
+            7: 200000.0,
+        }
+        if idx in presets:
+            self.spin_bal.setValue(presets[idx])
+
+    def get_balance(self) -> float:
+        return self.spin_bal.value()
+
+
 class ExecutionPanel(QFrame):
     """Trading execution and risk management panel supporting Market and Pending orders."""
 
@@ -25,6 +86,7 @@ class ExecutionPanel(QFrame):
     sell_clicked = pyqtSignal(float, float, float)    # lot_size, sl, tp
     pending_order_clicked = pyqtSignal(str, float, float, float, float)  # order_type, lot, entry, sl, tp
     close_all_clicked = pyqtSignal()
+    reset_capital_requested = pyqtSignal(float)       # new_starting_balance
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,6 +105,7 @@ class ExecutionPanel(QFrame):
         self.current_price = 2000.0
         self.spread = 0.20
         self.account_balance = 10000.0
+        self.account_equity = 10000.0
         self.point_value = 100.0
 
         self.init_ui()
@@ -50,11 +113,38 @@ class ExecutionPanel(QFrame):
     def init_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
-        # Header / Live Prices
+        # 1. Account & Starting Capital Section
+        grp_account = QGroupBox("ACCOUNT & CAPITAL")
+        acc_layout = QVBoxLayout(grp_account)
+        acc_layout.setContentsMargins(6, 6, 6, 6)
+        acc_layout.setSpacing(4)
+
+        acc_grid = QGridLayout()
+        acc_grid.addWidget(QLabel("Balance:"), 0, 0)
+        self.lbl_balance_val = QLabel("$10,000.00")
+        self.lbl_balance_val.setStyleSheet("font-weight: 700; color: #26a69a;")
+        acc_grid.addWidget(self.lbl_balance_val, 0, 1)
+
+        acc_grid.addWidget(QLabel("Equity:"), 1, 0)
+        self.lbl_equity_val = QLabel("$10,000.00")
+        self.lbl_equity_val.setStyleSheet("font-weight: 700; color: #ffffff;")
+        acc_grid.addWidget(self.lbl_equity_val, 1, 1)
+        acc_layout.addLayout(acc_grid)
+
+        self.btn_set_capital = QPushButton("⚙ Set / Reset Capital...")
+        self.btn_set_capital.setStyleSheet(
+            "background-color: #2a2e39; color: #d1d4dc; font-size: 11px; font-weight: 600; padding: 4px; border-radius: 3px;"
+        )
+        self.btn_set_capital.clicked.connect(self._open_set_capital_dialog)
+        acc_layout.addWidget(self.btn_set_capital)
+
+        layout.addWidget(grp_account)
+
+        # 2. Header / Live Prices
         self.lbl_sym_header = QLabel("XAUUSD")
-        self.lbl_sym_header.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
+        self.lbl_sym_header.setStyleSheet("font-size: 15px; font-weight: 800; color: #ffffff;")
         self.lbl_sym_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_sym_header)
 
@@ -318,12 +408,37 @@ class ExecutionPanel(QFrame):
             return 2
         return 2
 
-    def update_market_price(self, symbol: str, price: float, spread: float, balance: float, point_val: float) -> None:
+    def _open_set_capital_dialog(self) -> None:
+        dlg = SetBalanceDialog(current_balance=self.account_balance, parent=self)
+        if dlg.exec():
+            new_bal = dlg.get_balance()
+            self.account_balance = new_bal
+            self.lbl_balance_val.setText(f"${new_bal:,.2f}")
+            self.reset_capital_requested.emit(new_bal)
+
+    def update_account_info(self, balance: float, equity: float) -> None:
+        self.account_balance = balance
+        self.account_equity = equity
+        self.lbl_balance_val.setText(f"${balance:,.2f}")
+        bal_color = "#26a69a" if equity >= balance else "#ef5350"
+        self.lbl_equity_val.setStyleSheet(f"font-weight: 700; color: {bal_color};")
+        self.lbl_equity_val.setText(f"${equity:,.2f}")
+        self._recalc_risk()
+
+    def update_market_price(self, symbol: str, price: float, spread: float, balance: float, point_val: float, equity: Optional[float] = None) -> None:
         self.current_symbol = symbol
         self.current_price = price
         self.spread = spread
         self.account_balance = balance
+        if equity is not None:
+            self.account_equity = equity
         self.point_value = point_val
+
+        self.lbl_balance_val.setText(f"${balance:,.2f}")
+        eq = self.account_equity if equity is None else equity
+        bal_color = "#26a69a" if eq >= balance else "#ef5350"
+        self.lbl_equity_val.setStyleSheet(f"font-weight: 700; color: {bal_color};")
+        self.lbl_equity_val.setText(f"${eq:,.2f}")
 
         prec = self._get_precision(symbol)
         self.spin_entry.setDecimals(prec)
@@ -350,3 +465,4 @@ class ExecutionPanel(QFrame):
         self.lbl_ask.setText(f"ASK: {ask:.{prec}f}")
         self.btn_buy.setText(f"BUY\n{ask:.{prec}f}")
         self.btn_sell.setText(f"SELL\n{bid:.{prec}f}")
+

@@ -10,6 +10,7 @@ from src.utils.constants import Direction
 @dataclass
 class TradeStatistics:
     """Comprehensive statistical metrics derived from trade history."""
+    initial_balance: float = 10000.0
     total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0
@@ -55,7 +56,7 @@ class StatisticsCalculator:
 
     @staticmethod
     def calculate(trades: List[Position], initial_balance: float = 10000.0) -> TradeStatistics:
-        stats = TradeStatistics()
+        stats = TradeStatistics(initial_balance=initial_balance)
         if not trades:
             stats.equity_curve = [initial_balance]
             return stats

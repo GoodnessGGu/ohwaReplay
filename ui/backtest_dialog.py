@@ -47,11 +47,14 @@ class BacktestDialog(QDialog):
 
     def init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(14)
+        main_layout.setSpacing(12)
 
-        # 1. Configuration Group
-        grp_config = QGroupBox("STRATEGY & EXECUTION PARAMETERS")
-        form = QFormLayout(grp_config)
+        # 1. Configuration Groups (Grid of Strategy & Capital)
+        top_grid = QHBoxLayout()
+
+        # Left Group: Strategy & Direction
+        grp_strategy = QGroupBox("STRATEGY & DIRECTION")
+        form_strat = QFormLayout(grp_strategy)
 
         self.combo_strategy = QComboBox()
         self.combo_strategy.addItems([
@@ -59,31 +62,84 @@ class BacktestDialog(QDialog):
             "Market Structure Strategy (BOS & CHoCH)",
             "EMA Crossover Trend Strategy (9/21)",
         ])
-        form.addRow("Select Strategy:", self.combo_strategy)
+        form_strat.addRow("Strategy:", self.combo_strategy)
+
+        self.combo_direction = QComboBox()
+        self.combo_direction.addItems([
+            "Both (Long & Short)",
+            "Long Only",
+            "Short Only",
+        ])
+        form_strat.addRow("Trade Direction:", self.combo_direction)
+
+        self.spin_rr = QDoubleSpinBox()
+        self.spin_rr.setRange(0.5, 20.0)
+        self.spin_rr.setValue(2.0)
+        self.spin_rr.setSuffix(" R")
+        form_strat.addRow("Target Risk-Reward:", self.spin_rr)
+
+        self.combo_scope = QComboBox()
+        self.combo_scope.addItems([
+            "Full Dataset (All Available)",
+            "Last 500 Candles",
+            "Last 1,000 Candles",
+            "Last 2,000 Candles",
+            "First 50% (In-Sample)",
+            "Second 50% (Out-of-Sample)",
+        ])
+        form_strat.addRow("Data Scope:", self.combo_scope)
+
+        top_grid.addWidget(grp_strategy)
+
+        # Right Group: Capital & Execution Realism
+        grp_capital = QGroupBox("CAPITAL & EXECUTION REALISM")
+        form_cap = QFormLayout(grp_capital)
 
         self.spin_balance = QDoubleSpinBox()
         self.spin_balance.setRange(100.0, 10000000.0)
         self.spin_balance.setValue(10000.0)
-        self.spin_balance.setPrefix("$")
-        form.addRow("Initial Balance:", self.spin_balance)
+        self.spin_balance.setPrefix("$ ")
+        self.spin_balance.setSingleStep(1000.0)
+        form_cap.addRow("Initial Balance:", self.spin_balance)
+
+        self.combo_sizing = QComboBox()
+        self.combo_sizing.addItems(["Risk Percentage (%)", "Fixed Lot Size"])
+        self.combo_sizing.currentIndexChanged.connect(self._on_sizing_mode_changed)
+        form_cap.addRow("Sizing Mode:", self.combo_sizing)
 
         self.spin_risk = QDoubleSpinBox()
-        self.spin_risk.setRange(0.1, 10.0)
+        self.spin_risk.setRange(0.1, 50.0)
         self.spin_risk.setValue(1.0)
-        self.spin_risk.setSuffix("%")
-        form.addRow("Risk Per Trade:", self.spin_risk)
+        self.spin_risk.setSuffix(" %")
+        form_cap.addRow("Risk Per Trade:", self.spin_risk)
 
-        self.spin_rr = QDoubleSpinBox()
-        self.spin_rr.setRange(0.5, 10.0)
-        self.spin_rr.setValue(2.0)
-        self.spin_rr.setSuffix(" R")
-        form.addRow("Target Risk-Reward:", self.spin_rr)
+        self.spin_fixed_lot = QDoubleSpinBox()
+        self.spin_fixed_lot.setRange(0.01, 100.0)
+        self.spin_fixed_lot.setValue(1.0)
+        self.spin_fixed_lot.setSingleStep(0.1)
+        self.spin_fixed_lot.setVisible(False)
+        self.lbl_fixed_lot = QLabel("Fixed Lot Size:")
+        self.lbl_fixed_lot.setVisible(False)
+        form_cap.addRow(self.lbl_fixed_lot, self.spin_fixed_lot)
 
-        main_layout.addWidget(grp_config)
+        self.spin_comm = QDoubleSpinBox()
+        self.spin_comm.setRange(0.0, 100.0)
+        self.spin_comm.setValue(7.0)
+        self.spin_comm.setPrefix("$ ")
+        form_cap.addRow("Commission ($/lot):", self.spin_comm)
+
+        self.spin_spread = QDoubleSpinBox()
+        self.spin_spread.setRange(0.0, 50.0)
+        self.spin_spread.setDecimals(4)
+        self.spin_spread.setValue(0.20 if "XAU" in self.symbol else 0.00015)
+        form_cap.addRow("Spread:", self.spin_spread)
+
+        top_grid.addWidget(grp_capital)
+        main_layout.addLayout(top_grid)
 
         # 2. Run Backtest Button
         btn_run = QPushButton("🚀 Run Automated Backtest")
-        btn_run.setStyleSheet("background-color: #2962ff; color: #ffffff; font-weight: 700; font-size: 13px; padding: 8px 16px; border-radius: 4px;")
+        btn_run.setStyleSheet("background-color: #2962ff; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px 16px; border-radius: 4px;")
         btn_run.clicked.connect(self._run_backtest)
         main_layout.addWidget(btn_run)
 
@@ -124,6 +180,12 @@ class BacktestDialog(QDialog):
 
         main_layout.addLayout(action_layout)
 
+    def _on_sizing_mode_changed(self, idx: int) -> None:
+        is_fixed = (idx == 1)
+        self.spin_risk.setVisible(not is_fixed)
+        self.spin_fixed_lot.setVisible(is_fixed)
+        self.lbl_fixed_lot.setVisible(is_fixed)
+
     def _add_stat(self, grid: QGridLayout, title: str, value: str, row: int, col: int) -> QLabel:
         box = QHBoxLayout()
         t_lbl = QLabel(title)
@@ -150,14 +212,56 @@ class BacktestDialog(QDialog):
         else:
             strategy = EMACrossoverStrategy(risk_reward=rr)
 
+        # Direction filter
+        dir_text = self.combo_direction.currentText()
+        if "Long Only" in dir_text:
+            dir_filter = "long_only"
+        elif "Short Only" in dir_text:
+            dir_filter = "short_only"
+        else:
+            dir_filter = "both"
+
+        # Sizing mode
+        sizing_mode = "fixed_lot" if self.combo_sizing.currentIndex() == 1 else "risk_pct"
+
+        # Data slice
+        scope_idx = self.combo_scope.currentIndex()
+        total_len = len(self.df)
+        start_idx = 0
+        if scope_idx == 1:  # Last 500
+            start_idx = max(0, total_len - 500)
+        elif scope_idx == 2:  # Last 1000
+            start_idx = max(0, total_len - 1000)
+        elif scope_idx == 3:  # Last 2000
+            start_idx = max(0, total_len - 2000)
+        elif scope_idx == 4:  # First 50%
+            eval_df = self.df.iloc[:total_len // 2]
+            start_idx = 0
+        elif scope_idx == 5:  # Second 50%
+            start_idx = total_len // 2
+
+        if scope_idx == 4:
+            eval_df = self.df.iloc[:total_len // 2]
+        elif start_idx > 0:
+            eval_df = self.df.iloc[start_idx:].reset_index(drop=True)
+        else:
+            eval_df = self.df
+
         engine = BacktestEngine(
             initial_balance=self.spin_balance.value(),
             risk_pct=self.spin_risk.value(),
+            commission_per_lot=self.spin_comm.value(),
+            spread=self.spin_spread.value(),
+            slippage=0.05,
+            sizing_mode=sizing_mode,
+            fixed_lot_size=self.spin_fixed_lot.value(),
+            direction_filter=dir_filter,
         )
 
         try:
-            self.result = engine.run(strategy, self.df, symbol=self.symbol, timeframe=self.timeframe)
+            self.result = engine.run(strategy, eval_df, symbol=self.symbol, timeframe=self.timeframe)
             self._display_results(self.result)
+
 
             # Auto-save report to reports/
             report_dir = Path("reports")

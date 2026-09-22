@@ -65,3 +65,22 @@ def test_tearsheet_html_generation(backtest_ohlcv_df, tmp_path):
     out_file = tmp_path / "tearsheet.html"
     saved_path = TearsheetGenerator.save_tearsheet(res, str(out_file))
     assert Path(saved_path).exists()
+
+
+def test_backtest_custom_starting_balance_and_entry_variables(backtest_ohlcv_df):
+    strat = EMACrossoverStrategy(fast_period=5, slow_period=15, risk_reward=2.0)
+    engine = BacktestEngine(
+        initial_balance=50000.0,
+        sizing_mode="fixed_lot",
+        fixed_lot_size=2.0,
+        direction_filter="long_only",
+        commission_per_lot=5.0,
+        spread=0.10,
+    )
+    res = engine.run(strat, backtest_ohlcv_df, start_index=20)
+
+    assert res.initial_balance == 50000.0
+    for trade in res.trades:
+        assert trade.direction.value == "BUY"
+        assert trade.lot_size == 2.0
+

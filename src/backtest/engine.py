@@ -74,6 +74,10 @@ class BacktestEngine:
         spread: float = 0.20,
         slippage: float = 0.05,
         point_value: float = 100.0,
+        sizing_mode: str = "risk_pct",
+        fixed_lot_size: float = 1.0,
+        direction_filter: str = "both",
+        leverage: int = 100,
     ):
         self.initial_balance = initial_balance
         self.risk_pct = risk_pct
@@ -81,8 +85,19 @@ class BacktestEngine:
         self.spread = spread
         self.slippage = slippage
         self.point_value = point_value
+        self.sizing_mode = sizing_mode
+        self.fixed_lot_size = max(0.01, fixed_lot_size)
+        self.direction_filter = direction_filter.lower()
+        self.leverage = max(1, leverage)
 
-    def run(self, strategy: BaseStrategy, df: pd.DataFrame, symbol: str = "XAUUSD", timeframe: str = "5m") -> BacktestResult:
+    def run(
+        self,
+        strategy: BaseStrategy,
+        df: pd.DataFrame,
+        symbol: str = "XAUUSD",
+        timeframe: str = "5m",
+        start_index: int = 0,
+    ) -> BacktestResult:
         if df.empty or len(df) < 10:
             return BacktestResult(
                 strategy_name=strategy.name,
@@ -107,9 +122,14 @@ class BacktestEngine:
                 avg_loss=0.0,
             )
 
-        signals_df = strategy.generate_signals(df)
+        if start_index > 0 and start_index < len(df) - 10:
+            eval_df = df.iloc[start_index:].reset_index(drop=True)
+        else:
+            eval_df = df.reset_index(drop=True)
 
-        n = len(df)
+        signals_df = strategy.generate_signals(eval_df)
+
+        n = len(eval_df)
         balance = self.initial_balance
         equity = self.initial_balance
         peak_equity = self.initial_balance
@@ -119,10 +139,10 @@ class BacktestEngine:
         trades: List[BacktestTrade] = []
         equity_curve: List[Dict[str, Any]] = []
 
-        timestamps = df["timestamp"].values
-        highs = df["high"].values
-        lows = df["low"].values
-        closes = df["close"].values
+        timestamps = eval_df["timestamp"].values
+        highs = eval_df["high"].values
+        lows = eval_df["low"].values
+        closes = eval_df["close"].values
         sig_arr = signals_df["signal"].values
         sl_arr = signals_df["stop_loss"].values
         tp_arr = signals_df["take_profit"].values
@@ -189,20 +209,30 @@ class BacktestEngine:
             # 2. Check for new trade entry if no active position
             if active_trade is None and i < n - 1:
                 sig = sig_arr[i]
+                # Check direction filter
+                if sig == 1 and self.direction_filter in ("short_only", "short"):
+                    sig = 0
+                elif sig == -1 and self.direction_filter in ("long_only", "long"):
+                    sig = 0
+
                 if sig != 0 and pd.notna(sl_arr[i]) and pd.notna(tp_arr[i]):
                     direction = Direction.BUY if sig == 1 else Direction.SELL
                     raw_entry = c_close
                     sl = sl_arr[i]
                     tp = tp_arr[i]
 
-                    # Sizing via risk calculator
-                    lot = RiskCalculator.calculate_lot_size(
-                        balance=balance,
-                        risk_pct=self.risk_pct,
-                        entry_price=raw_entry,
-                        stop_loss_price=sl,
-                        point_value=self.point_value,
-                    )
+                    # Sizing via risk calculator or fixed lot
+                    if self.sizing_mode in ("fixed_lot", "fixed"):
+                        lot = round(self.fixed_lot_size, 2)
+                    else:
+                        lot = RiskCalculator.calculate_lot_size(
+                            balance=balance,
+                            risk_pct=self.risk_pct,
+                            entry_price=raw_entry,
+                            stop_loss_price=sl,
+                            point_value=self.point_value,
+                        )
+
                     if lot >= 0.01:
                         fill_entry = raw_entry + (self.spread / 2.0) + self.slippage if direction == Direction.BUY else raw_entry - (self.spread / 2.0) - self.slippage
                         active_trade = {

@@ -389,6 +389,7 @@ class MainWindow(QMainWindow):
         self.exec_panel.sell_clicked.connect(self._execute_sell)
         self.exec_panel.pending_order_clicked.connect(self._execute_pending_order)
         self.exec_panel.close_all_clicked.connect(self._close_all_positions)
+        self.exec_panel.reset_capital_requested.connect(self._on_reset_account_balance)
 
         # Positions & History Panels
         self.positions_panel.close_position_requested.connect(self._close_single_position)
@@ -967,6 +968,7 @@ class MainWindow(QMainWindow):
             spread=self.account_engine.spread,
             balance=self.account_engine.balance,
             point_val=point_val,
+            equity=self.account_engine.equity,
         )
 
     def _update_heavy_views(self) -> None:
@@ -1289,10 +1291,18 @@ class MainWindow(QMainWindow):
         self.drawing_store.clear()
         self.chart_manager.sync_drawings([])
 
+    def _on_reset_account_balance(self, new_balance: float) -> None:
+        """Resets trading account, analytics, and execution panel with new starting capital."""
+        self.account_engine.reset(initial_balance=new_balance)
+        self.analytics_engine.initial_balance = new_balance
+        self.exec_panel.update_account_info(balance=new_balance, equity=new_balance)
+        self._update_all_views()
+        self.statusBar().showMessage(f"Starting balance set to ${new_balance:,.2f}", 4000)
+
     def _open_settings(self) -> None:
         curr = {
             "theme": self.current_theme,
-            "balance": self.account_engine.balance,
+            "balance": self.account_engine.initial_balance,
             "leverage": self.account_engine.leverage,
             "commission": self.account_engine.commission_per_lot,
             "spread": self.account_engine.spread,
@@ -1305,12 +1315,16 @@ class MainWindow(QMainWindow):
             new_theme = res.get("theme", self.current_theme)
             if new_theme != self.current_theme:
                 self._apply_theme(new_theme)
+            new_bal = float(res.get("balance", self.account_engine.initial_balance))
+            if abs(new_bal - self.account_engine.initial_balance) > 0.001:
+                self._on_reset_account_balance(new_bal)
             self.account_engine.leverage = int(res["leverage"])
             self.account_engine.commission_per_lot = float(res["commission"])
             self.account_engine.spread = float(res["spread"])
             self.account_engine.slippage = float(res["slippage"])
             self.account_engine.intrabar_mode = IntrabarExecutionMode(res["intrabar_mode"])
             self._update_all_views()
+
 
     def _menu_open_csv(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(

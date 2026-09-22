@@ -44,13 +44,23 @@ class SettingsDialog(QDialog):
         layout.addWidget(grp_appearance)
 
         # 2. Realism Group
-        grp_realism = QGroupBox("TRADING REALISM SETTINGS")
+        grp_realism = QGroupBox("TRADING REALISM & ACCOUNT SETTINGS")
         form_realism = QFormLayout(grp_realism)
 
+        bal_layout = QHBoxLayout()
         self.spin_balance = QDoubleSpinBox()
         self.spin_balance.setRange(100.0, 10000000.0)
         self.spin_balance.setValue(float(self.settings.get("balance", 10000.0)))
-        form_realism.addRow("Initial Balance ($):", self.spin_balance)
+        self.spin_balance.setPrefix("$ ")
+        self.spin_balance.setSingleStep(1000.0)
+
+        self.combo_bal_preset = QComboBox()
+        self.combo_bal_preset.addItems(["Preset...", "$1,000", "$5,000", "$10,000", "$25,000", "$50,000", "$100,000", "$200,000"])
+        self.combo_bal_preset.currentIndexChanged.connect(self._on_preset_selected)
+
+        bal_layout.addWidget(self.spin_balance, 2)
+        bal_layout.addWidget(self.combo_bal_preset, 1)
+        form_realism.addRow("Initial Balance:", bal_layout)
 
         self.spin_leverage = QSpinBox()
         self.spin_leverage.setRange(1, 1000)
@@ -94,6 +104,19 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_preset_selected(self, idx: int) -> None:
+        val_map = {
+            1: 1000.0,
+            2: 5000.0,
+            3: 10000.0,
+            4: 25000.0,
+            5: 50000.0,
+            6: 100000.0,
+            7: 200000.0,
+        }
+        if idx in val_map:
+            self.spin_balance.setValue(val_map[idx])
 
     def get_settings(self) -> Dict[str, Any]:
         return {

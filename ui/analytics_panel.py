@@ -233,4 +233,5 @@ class AnalyticsPanel(QWidget):
         )
 
         if hasattr(stats, "equity_curve") and stats.equity_curve:
-            self.equity_widget.set_data(stats.equity_curve)
+            init_bal = getattr(stats, "initial_balance", 10000.0)
+            self.equity_widget.set_data(stats.equity_curve, initial_balance=init_bal)
