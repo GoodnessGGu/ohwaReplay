@@ -275,6 +275,8 @@ def get_chart_html(theme: str = "dark") -> str:
       layout: {{
         background: {{ type: 'solid', color: '{bg_color}' }},
         textColor: '{text_color}',
+        fontSize: 12,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
       }},
       grid: {{
         vertLines: {{ color: '{grid_color}' }},
@@ -285,6 +287,10 @@ def get_chart_html(theme: str = "dark") -> str:
       }},
       rightPriceScale: {{
         borderColor: '{grid_color}',
+        minimumWidth: 80,
+        entireTextOnly: false,
+        autoScale: true,
+        alignLabels: true,
         scaleMargins: {{
           top: 0.1,
           bottom: 0.2,
@@ -488,7 +494,7 @@ def get_chart_html(theme: str = "dark") -> str:
           vertLines: {{ color: gridColor }},
           horzLines: {{ color: gridColor }},
         }},
-        rightPriceScale: {{ borderColor: gridColor }},
+        rightPriceScale: {{ borderColor: gridColor, minimumWidth: 80 }},
         timeScale: {{ borderColor: gridColor }},
       }});
       document.body.style.backgroundColor = bgColor;
